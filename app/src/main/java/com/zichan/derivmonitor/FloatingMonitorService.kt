@@ -26,12 +26,16 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.app.NotificationCompat
+import okhttp3.Dns
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import java.net.Inet4Address
+import java.net.InetAddress
+import java.util.Locale
 import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
@@ -39,44 +43,110 @@ class FloatingMonitorService : Service() {
 
     private lateinit var windowManager: WindowManager
     private var rootContainer: LinearLayout? = null
+    private var headerTv: TextView? = null
     private var rowsContainer: LinearLayout? = null
     private var minimizedBadge: TextView? = null
     private var isMinimized = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
     private var webSocket: WebSocket? = null
+    private var endpointIdx = 0
+    private var isSocketOpen = false
+
+    private val endpoints = listOf(
+        "wss://ws.binaryws.com/websockets/v3?app_id=1089",
+        "wss://frontend.binaryws.com/websockets/v3?app_id=1089",
+        "wss://ws.derivws.com/websockets/v3?app_id=1089",
+        "wss://green.binaryws.com/websockets/v3?app_id=1089",
+        "wss://blue.binaryws.com/websockets/v3?app_id=1089"
+    )
+
+    private val dohBootstrapClient = OkHttpClient.Builder()
+        .connectTimeout(5, TimeUnit.SECONDS)
+        .readTimeout(5, TimeUnit.SECONDS)
+        .build()
+
+    private val customDns = object : Dns {
+        override fun lookup(hostname: String): List<InetAddress> {
+            // 1. Try Cloudflare DoH over direct IP 1.1.1.1 to bypass ISP DNS blocks
+            try {
+                val req = Request.Builder()
+                    .url("https://1.1.1.1/dns-query?name=$hostname&type=A")
+                    .header("Accept", "application/dns-json")
+                    .build()
+                dohBootstrapClient.newCall(req).execute().use { resp ->
+                    val body = resp.body?.string()
+                    if (!body.isNullOrEmpty()) {
+                        val json = JSONObject(body)
+                        val ans = json.optJSONArray("Answer")
+                        if (ans != null) {
+                            val list = mutableListOf<InetAddress>()
+                            for (i in 0 until ans.length()) {
+                                val obj = ans.getJSONObject(i)
+                                if (obj.optInt("type") == 1) {
+                                    val ip = obj.optString("data")
+                                    if (ip.isNotEmpty()) {
+                                        list.add(InetAddress.getByName(ip))
+                                    }
+                                }
+                            }
+                            if (list.isNotEmpty()) return list
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+
+            // 2. Fallback to system DNS preferring IPv4
+            val sys = Dns.SYSTEM.lookup(hostname)
+            val ipv4 = sys.filterIsInstance<Inet4Address>()
+            return if (ipv4.isNotEmpty()) ipv4 else sys
+        }
+    }
+
     private val client = OkHttpClient.Builder()
+        .dns(customDns)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(0, TimeUnit.MILLISECONDS)
         .pingInterval(20, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
         .build()
 
     private val priceViews = mutableMapOf<String, TextView>()
+    private val aliasToRowKey = mutableMapOf<String, String>()
     private val lastPrices = mutableMapOf<String, Double>()
     private var activeSymbols = listOf<MarketSymbol>()
+
+    private val pingLoop = object : Runnable {
+        override fun run() {
+            try {
+                if (isSocketOpen) {
+                    webSocket?.send("{"ping":1}")
+                }
+            } catch (_: Exception) {}
+            mainHandler.postDelayed(this, 20000)
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         startForegroundNotification()
         createFloatingView()
-        reloadPairsAndConnect()
+        mainHandler.postDelayed(pingLoop, 20000)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_REFRESH -> {
-                showOverlayIfHidden()
-                updateVisualStyling()
-                reloadPairsAndConnect()
-            }
-            ACTION_STOP -> {
-                stopSelf()
-            }
-            else -> {
-                showOverlayIfHidden()
-                updateVisualStyling()
-                reloadPairsAndConnect()
-            }
+        if (intent?.action == ACTION_STOP) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        showOverlayIfHidden()
+        updateVisualStyling()
+        val updated = PrefsManager.getSelectedSymbols(this)
+        val oldCodes = activeSymbols.map { it.code }
+        val newCodes = updated.map { it.code }
+        if (oldCodes != newCodes || !isSocketOpen || priceViews.isEmpty()) {
+            reloadPairsAndConnect()
         }
         return START_STICKY
     }
@@ -95,8 +165,8 @@ class FloatingMonitorService : Service() {
         }
 
         val header = TextView(this).apply {
-            text = "● DERIV LIVE"
-            setTextColor(Color.parseColor("#80CBC4"))
+            text = "● CONNECTING..."
+            setTextColor(Color.parseColor("#FACC15"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 9.5f)
             typeface = Typeface.DEFAULT_BOLD
             setPadding(0, 0, 0, dp(3))
@@ -118,6 +188,7 @@ class FloatingMonitorService : Service() {
         container.addView(mini)
 
         rootContainer = container
+        headerTv = header
         rowsContainer = rows
         minimizedBadge = mini
 
@@ -143,7 +214,7 @@ class FloatingMonitorService : Service() {
             y = 220
         }
 
-        setupTouchListeners(container, params, header)
+        setupTouchListeners(container, params)
         windowManager.addView(container, params)
     }
 
@@ -153,7 +224,7 @@ class FloatingMonitorService : Service() {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(12).toFloat()
-            setColor(Color.argb(alphaInt, 15, 23, 42)) // Deep slate transparent
+            setColor(Color.argb(alphaInt, 15, 23, 42))
             setStroke(dp(1), Color.argb(130, 56, 189, 248))
         }
         rootContainer?.background = bg
@@ -164,11 +235,7 @@ class FloatingMonitorService : Service() {
         }
     }
 
-    private fun setupTouchListeners(
-        view: View,
-        params: WindowManager.LayoutParams,
-        headerView: TextView
-    ) {
+    private fun setupTouchListeners(view: View, params: WindowManager.LayoutParams) {
         var initialX = 0
         var initialY = 0
         var initialTouchX = 0f
@@ -219,10 +286,8 @@ class FloatingMonitorService : Service() {
                         val now = System.currentTimeMillis()
                         if (now - lastTapTime < 320) {
                             setMinimizedState(!isMinimized)
-                            headerView.visibility = if (isMinimized) View.GONE else View.VISIBLE
                         } else if (isMinimized) {
                             setMinimizedState(false)
-                            headerView.visibility = View.VISIBLE
                         }
                         lastTapTime = now
                     }
@@ -235,6 +300,7 @@ class FloatingMonitorService : Service() {
 
     private fun setMinimizedState(minimize: Boolean) {
         isMinimized = minimize
+        headerTv?.visibility = if (minimize) View.GONE else View.VISIBLE
         rowsContainer?.visibility = if (minimize) View.GONE else View.VISIBLE
         minimizedBadge?.visibility = if (minimize) View.VISIBLE else View.GONE
     }
@@ -243,6 +309,7 @@ class FloatingMonitorService : Service() {
         activeSymbols = PrefsManager.getSelectedSymbols(this)
         rowsContainer?.removeAllViews()
         priceViews.clear()
+        aliasToRowKey.clear()
 
         val textSize = PrefsManager.getTextSizeSp(this)
 
@@ -277,43 +344,158 @@ class FloatingMonitorService : Service() {
             row.addView(priceTv)
             rowsContainer?.addView(row)
             priceViews[sym.code] = priceTv
+            aliasToRowKey[sym.code] = sym.code
         }
 
         connectDerivWebSocket()
     }
 
+    private fun sendTickSubscription(ws: WebSocket, symbolCode: String) {
+        val req = JSONObject().apply {
+            put("ticks_history", symbolCode)
+            put("adjust_start_time", 1)
+            put("count", 1)
+            put("end", "latest")
+            put("style", "ticks")
+            put("subscribe", 1)
+        }
+        ws.send(req.toString())
+    }
+
     private fun connectDerivWebSocket() {
+        isSocketOpen = false
         webSocket?.cancel()
         if (activeSymbols.isEmpty()) return
 
+        val endpointUrl = endpoints[endpointIdx % endpoints.size]
+        mainHandler.post {
+            headerTv?.text = "● CONNECTING..."
+            headerTv?.setTextColor(Color.parseColor("#FACC15"))
+        }
+
         val request = Request.Builder()
-            .url("wss://ws.derivws.com/websockets/v3?app_id=1089")
+            .url(endpointUrl)
+            .header("Origin", "https://app.deriv.com")
+            .header("User-Agent", "Mozilla/5.0 (Linux; Android 14) Chrome/126.0.0.0 Mobile Safari/537.36")
             .build()
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
+            override fun onOpen(ws: WebSocket, response: Response) {
+                isSocketOpen = true
+                mainHandler.post {
+                    headerTv?.text = "● DERIV LIVE"
+                    headerTv?.setTextColor(Color.parseColor("#4ADE80"))
+                }
+
+                ws.send("{"active_symbols":"brief","product_type":"basic"}")
+
                 for (sym in activeSymbols) {
-                    val subJson = JSONObject().apply {
-                        put("ticks", sym.code)
-                        put("subscribe", 1)
+                    val normalized = when (sym.code.uppercase(Locale.US)) {
+                        "CRASH50" -> "CRASH50N"
+                        "BOOM50" -> "BOOM50N"
+                        "CRASH150" -> "CRASH150N"
+                        "BOOM150" -> "BOOM150N"
+                        "CRASH300" -> "CRASH300N"
+                        "BOOM300" -> "BOOM300N"
+                        else -> sym.code
                     }
-                    webSocket.send(subJson.toString())
+                    aliasToRowKey[normalized] = sym.code
+                    sendTickSubscription(ws, normalized)
                 }
             }
 
-            override fun onMessage(webSocket: WebSocket, text: String) {
+            override fun onMessage(ws: WebSocket, text: String) {
                 try {
                     val json = JSONObject(text)
-                    val tick = json.optJSONObject("tick") ?: return
-                    val symbol = tick.optString("symbol")
-                    val quoteStr = tick.optString("quote")
-                    val quote = quoteStr.toDoubleOrNull() ?: return
+                    val msgType = json.optString("msg_type")
 
-                    val prev = lastPrices[symbol]
-                    lastPrices[symbol] = quote
+                    if (msgType == "active_symbols") {
+                        val arr = json.optJSONArray("active_symbols") ?: return
+                        val byName = mutableMapOf<String, String>()
+                        val validCodes = mutableSetOf<String>()
+                        for (i in 0 until arr.length()) {
+                            val item = arr.getJSONObject(i)
+                            val c = item.optString("symbol")
+                            val d = item.optString("display_name").lowercase(Locale.US)
+                            if (c.isNotEmpty()) {
+                                validCodes.add(c)
+                                byName[d] = c
+                            }
+                        }
+                        for (sym in activeSymbols) {
+                            if (!validCodes.contains(sym.code)) {
+                                val targetName = sym.displayName.lowercase(Locale.US)
+                                val matched = byName[targetName]
+                                    ?: byName.entries.firstOrNull {
+                                        it.key.contains(targetName.replace(" index", ""))
+                                    }?.value
+                                if (matched != null && !aliasToRowKey.containsKey(matched)) {
+                                    aliasToRowKey[matched] = sym.code
+                                    sendTickSubscription(ws, matched)
+                                }
+                            }
+                        }
+                        return
+                    }
+
+                    if (json.has("error")) {
+                        val err = json.getJSONObject("error")
+                        val code = err.optString("code")
+                        val echo = json.optJSONObject("echo_req")
+                        val reqSym = echo?.optString("ticks_history") ?: ""
+                        val rowKey = aliasToRowKey[reqSym] ?: reqSym
+                        if (code == "MarketIsClosed") {
+                            mainHandler.post {
+                                priceViews[rowKey]?.text = "Closed"
+                                priceViews[rowKey]?.setTextColor(Color.parseColor("#94A3B8"))
+                            }
+                        } else if (code == "InvalidSymbol" && reqSym.isNotEmpty()) {
+                            val alt = if (reqSym.endsWith("N")) reqSym.dropLast(1) else "${reqSym}N"
+                            if (!aliasToRowKey.containsKey(alt)) {
+                                aliasToRowKey[alt] = rowKey
+                                sendTickSubscription(ws, alt)
+                            }
+                        }
+                        return
+                    }
+
+                    if (msgType == "history") {
+                        val echo = json.optJSONObject("echo_req")
+                        val reqSym = echo?.optString("ticks_history") ?: return
+                        val rowKey = aliasToRowKey[reqSym] ?: reqSym
+                        val prices = json.optJSONObject("history")?.optJSONArray("prices") ?: return
+                        if (prices.length() > 0) {
+                            val latestStr = prices.optString(prices.length() - 1)
+                            val latestVal = latestStr.toDoubleOrNull()
+                            if (latestVal != null) {
+                                lastPrices[rowKey] = latestVal
+                                mainHandler.post {
+                                    val tv = priceViews[rowKey] ?: return@post
+                                    tv.text = latestStr
+                                    tv.setTextColor(Color.parseColor("#38BDF8"))
+                                }
+                            }
+                        }
+                        return
+                    }
+
+                    val tick = json.optJSONObject("tick") ?: return
+                    val rawSymbol = tick.optString("symbol")
+                    val rowKey = aliasToRowKey[rawSymbol] ?: rawSymbol
+                    val quote = tick.optDouble("quote", Double.NaN)
+                    if (quote.isNaN()) return
+                    val pipSize = tick.optInt("pip_size", -1)
+                    val quoteStr = if (pipSize >= 0) {
+                        String.format(Locale.US, "%.${pipSize}f", quote)
+                    } else {
+                        tick.optString("quote")
+                    }
+
+                    val prev = lastPrices[rowKey]
+                    lastPrices[rowKey] = quote
 
                     mainHandler.post {
-                        val tv = priceViews[symbol] ?: return@post
+                        val tv = priceViews[rowKey] ?: return@post
                         val diff = if (prev != null) quote - prev else 0.0
                         val arrow = when {
                             diff > 0 -> " ▲"
@@ -321,7 +503,7 @@ class FloatingMonitorService : Service() {
                             else -> ""
                         }
                         val isSpike = prev != null && abs(diff) > (prev * 0.0018) &&
-                                (symbol.startsWith("CRASH") || symbol.startsWith("BOOM"))
+                                (rawSymbol.startsWith("CRASH") || rawSymbol.startsWith("BOOM"))
                         val spikeTag = if (isSpike) " ⚡" else ""
 
                         tv.text = "$quoteStr$arrow$spikeTag"
@@ -333,10 +515,16 @@ class FloatingMonitorService : Service() {
                 } catch (_: Exception) {}
             }
 
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+            override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
+                isSocketOpen = false
+                endpointIdx = (endpointIdx + 1) % endpoints.size
+                mainHandler.post {
+                    headerTv?.text = "● RECONNECTING..."
+                    headerTv?.setTextColor(Color.parseColor("#FB923C"))
+                }
                 mainHandler.postDelayed({
                     connectDerivWebSocket()
-                }, 4000)
+                }, 2000)
             }
         })
     }
@@ -392,6 +580,7 @@ class FloatingMonitorService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        mainHandler.removeCallbacksAndMessages(null)
         webSocket?.cancel()
         rootContainer?.let {
             try {
