@@ -120,7 +120,7 @@ class FloatingMonitorService : Service() {
         override fun run() {
             try {
                 if (isSocketOpen) {
-                    webSocket?.send("{"ping":1}")
+                    webSocket?.send("""{"ping":1}""")
                 }
             } catch (_: Exception) {}
             mainHandler.postDelayed(this, 20000)
@@ -387,7 +387,7 @@ class FloatingMonitorService : Service() {
                     headerTv?.setTextColor(Color.parseColor("#4ADE80"))
                 }
 
-                ws.send("{"active_symbols":"brief","product_type":"basic"}")
+                ws.send("""{"active_symbols":"brief","product_type":"basic"}""")
 
                 for (sym in activeSymbols) {
                     val normalized = when (sym.code.uppercase(Locale.US)) {
