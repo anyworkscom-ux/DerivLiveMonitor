@@ -10,6 +10,9 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
+import android.media.AudioAttributes
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Handler
@@ -65,6 +68,8 @@ class FloatingMonitorService : Service() {
     private val priceViews = mutableMapOf<String, TextView>()
     private val lastPrices = mutableMapOf<String, Double>()
     private var liveCount = 0
+    private var activeAlertTone: Ringtone? = null
+    private var flashTask: Runnable? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -425,6 +430,7 @@ class FloatingMonitorService : Service() {
         val value = String.format(Locale.US, "%." + pip + "f", quote)
         val previous = lastPrices[rowKey]
         lastPrices[rowKey] = quote
+        if (previous != null) checkPriceAlert(rowKey, previous, quote)
         handler.post {
             val view = priceViews[rowKey] ?: return@post
             val difference = if (previous == null) 0.0 else quote - previous
@@ -442,6 +448,79 @@ class FloatingMonitorService : Service() {
             if (previous == null) liveCount += 1
             setStatus("LIVE  •  " + liveCount + "/" + selected.size, "#4ADE80")
         }
+    }
+
+    private fun checkPriceAlert(rowKey: String, previous: Double, current: Double) {
+        val alert = PrefsManager.getAlerts(this).firstOrNull {
+            it.symbol == rowKey && !it.triggered &&
+                ((previous < it.targetPrice && current >= it.targetPrice) ||
+                 (previous > it.targetPrice && current <= it.targetPrice))
+        } ?: return
+        PrefsManager.markAlertTriggered(this, rowKey)
+        triggerPriceAlert(alert, current)
+    }
+
+    private fun triggerPriceAlert(alert: PriceAlert, current: Double) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val open = PendingIntent.getActivity(
+            this, alert.symbol.hashCode(), Intent(this, ChartActivity::class.java).apply {
+                putExtra(ChartActivity.EXTRA_SYMBOL, alert.symbol)
+                putExtra(ChartActivity.EXTRA_NAME, alert.displayName)
+                putExtra(ChartActivity.EXTRA_CATEGORY, "Market")
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+            }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Zichan Market Monitor")
+            .setContentText(alert.displayName + " reached your price level")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                alert.displayName + " touched or crossed " +
+                String.format(Locale.US, "%.5f", alert.targetPrice) +
+                ". Latest price: " + String.format(Locale.US, "%.5f", current)
+            ))
+            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setAutoCancel(true)
+            .setContentIntent(open)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .build()
+        manager.notify(3100 + (alert.symbol.hashCode() and 0x3ff), notification)
+        flashOverlay(alert.displayName)
+        try {
+            activeAlertTone?.stop()
+            val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            activeAlertTone = RingtoneManager.getRingtone(applicationContext, uri)
+            activeAlertTone?.play()
+            handler.postDelayed({ try { activeAlertTone?.stop() } catch (_: Exception) {} }, 1800)
+        } catch (_: Exception) { }
+    }
+
+    private fun flashOverlay(marketName: String) {
+        flashTask?.let { handler.removeCallbacks(it) }
+        val original = rounded("#E8111B2B", "#6638BDF8", 16)
+        var elapsed = 0
+        val task = object : Runnable {
+            override fun run() {
+                val container = root ?: return
+                if (elapsed >= 1800) {
+                    container.background = original
+                    header?.text = "● LIVE"
+                    header?.setTextColor(Color.parseColor("#4ADE80"))
+                    flashTask = null
+                    return
+                }
+                val red = elapsed % 600 < 300
+                container.background = if (red) rounded("#D9B91C31", "#FFFF5268", 16) else original
+                header?.text = if (red) "● PRICE ALERT" else "● " + marketName.take(16)
+                header?.setTextColor(if (red) Color.WHITE else Color.parseColor("#4ADE80"))
+                elapsed += 300
+                handler.postDelayed(this, 300)
+            }
+        }
+        flashTask = task
+        handler.post(task)
     }
 
     private fun scheduleReconnect(reason: String) {
@@ -489,8 +568,18 @@ class FloatingMonitorService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
             val channel = NotificationChannel(CHANNEL, "Live Price Monitor", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+            manager.createNotificationChannel(channel)
+            val alertChannel = NotificationChannel(ALERT_CHANNEL, "Price Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Sound and visual notifications when a watched price reaches its alert level"
+                enableVibration(true)
+                val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                setSound(sound, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            }
+            manager.createNotificationChannel(alertChannel)
         }
     }
 
@@ -532,5 +621,6 @@ class FloatingMonitorService : Service() {
         const val ACTION_REFRESH = "com.zichan.derivmonitor.ACTION_REFRESH"
         const val ACTION_STOP = "com.zichan.derivmonitor.ACTION_STOP"
         private const val CHANNEL = "deriv_live_overlay_channel"
+        private const val ALERT_CHANNEL = "zichan_price_alerts"
     }
 }
