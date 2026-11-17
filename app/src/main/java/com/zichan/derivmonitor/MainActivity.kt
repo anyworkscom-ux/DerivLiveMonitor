@@ -219,7 +219,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun loadCatalogue() {
         catalogueSocket?.cancel()
-        val req = Request.Builder().url("wss://ws.derivws.com/websockets/v3?app_id=1089").build()
+        val req = Request.Builder().url("wss://api.derivws.com/trading/v1/options/ws/public").build()
         catalogueSocket = http.newWebSocket(req, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 webSocket.send(JSONObject().put("active_symbols", "brief").toString())
