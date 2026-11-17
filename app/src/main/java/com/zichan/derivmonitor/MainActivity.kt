@@ -431,7 +431,7 @@ class MainActivity : AppCompatActivity() {
         setOnClickListener { callback() }
     }
     private fun iconAction(text: String, callback: () -> Unit) = TextView(this).apply {
-        this.text = text; textSize = 22f; gravity = Gravity.CENTER; setTextColor(primary())
+        this.text = text; textSize = 22f; gravity = Gravity.CENTER; setTextColor(Color.parseColor(primary()))
         background = panel(if (isLight) "#FFFFFF" else "#142238", borderColor())
         layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)); setOnClickListener { callback() }
     }
