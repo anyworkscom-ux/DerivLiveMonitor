@@ -13,10 +13,6 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
-import kotlin.math.ceil
-import kotlin.math.floor
-import kotlin.math.log10
-import kotlin.math.pow
 
 data class CandleBar(val epoch: Long, val open: Double, val high: Double, val low: Double, val close: Double)
 enum class DrawingTool { NONE, HORIZONTAL, TRENDLINE, RAY, RECTANGLE }
@@ -228,21 +224,6 @@ class MarketChartView(context: Context) : View(context) {
         }
         canvas.drawRect(plot, border)
         canvas.drawLine(plot.right + dp(2f), plot.top, plot.right + dp(2f), plot.bottom, grid)
-    }
-
-    private fun nicePriceStep(raw: Double): Double {
-        if (!raw.isFinite() || raw <= 0.0) return 1.0
-        val exponent = floor(log10(raw))
-        val magnitude = 10.0.pow(exponent)
-        val fraction = raw / magnitude
-        val nice = when {
-            fraction <= 1.0 -> 1.0
-            fraction <= 2.0 -> 2.0
-            fraction <= 2.5 -> 2.5
-            fraction <= 5.0 -> 5.0
-            else -> 10.0
-        }
-        return nice * magnitude
     }
 
     private fun drawCandles(canvas: Canvas) {
