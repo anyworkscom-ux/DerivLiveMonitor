@@ -175,7 +175,7 @@ class FloatingMonitorService : Service() {
 
     private fun applyStyle() {
         val opacity = PrefsManager.getOpacity(this)
-        val alpha = (opacity * 255 / 100).coerceIn(48, 255)
+        val alpha = (opacity * 255 / 100).coerceIn(1, 255)
         val palette = when (PrefsManager.getOverlayColor(this)) {
             1 -> intArrayOf(Color.rgb(24, 31, 45), Color.rgb(110, 130, 158))
             2 -> intArrayOf(Color.rgb(12, 48, 42), Color.rgb(52, 211, 153))
