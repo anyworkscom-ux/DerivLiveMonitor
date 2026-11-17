@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AppCompatActivity
@@ -69,7 +70,7 @@ class ChartActivity : AppCompatActivity() {
     }
 
     private fun buildScreen() {
-        val scroll = ScrollView(this).apply { setBackgroundColor(bg()) }
+        val scroll = ChartGestureScrollView(this).apply { setBackgroundColor(bg()); isFillViewport = true }
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(18), dp(16), dp(26)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         top.addView(action("‹", "#FFFFFF", "#17243A") { finish() })
@@ -125,11 +126,14 @@ class ChartActivity : AppCompatActivity() {
         })
         root.addView(alertRow); root.addView(space(14))
         chart = MarketChartView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(430))
+            layoutParams = LinearLayout.LayoutParams(-1, dp(470))
+            isClickable = true
+            isHapticFeedbackEnabled = false
             onAlertPlaced = { value -> confirmAlert(value) }
         }
         chart.setEmaSettings(emaEnabled, emaPeriod, emaShift)
         chart.setData(emptyList(), isLight)
+        scroll.chartView = chart
         root.addView(chart); root.addView(space(10))
 
         val chartActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -151,7 +155,7 @@ class ChartActivity : AppCompatActivity() {
         tools.addView(action("CLEAR", "#FCA5A5", "#402331") { chart.clearDrawings() })
         val toolScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(tools) }
         root.addView(toolScroll); root.addView(space(12))
-        root.addView(label("Drag to pan. Pinch to zoom. Drag the price axis area to adjust scale. Drawings stay anchored to market price and time.", 10f, secondary(), false))
+        root.addView(label("Drag inside the plot to pan. Pinch to zoom both axes. Drag the right price scale to zoom vertically. Select a drawing to move it.", 10f, secondary(), false))
         scroll.addView(root); setContentView(scroll)
         renderTimeframes(); renderChartType()
         chart.alertPrice = PrefsManager.getAlerts(this).firstOrNull { it.symbol == symbol }?.targetPrice
@@ -427,5 +431,38 @@ class ChartActivity : AppCompatActivity() {
         socket = null
         client.dispatcher.executorService.shutdown()
         super.onDestroy()
+    }
+}
+
+/**
+ * Prevents the outer page ScrollView from stealing a gesture that starts on
+ * the chart. This keeps pan, pinch, alert placement and drawing gestures local
+ * to the plot while the rest of the page remains vertically scrollable.
+ */
+private class ChartGestureScrollView(context: android.content.Context) : ScrollView(context) {
+    var chartView: MarketChartView? = null
+    private var chartGestureActive = false
+
+    override fun onInterceptTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> chartGestureActive = isInsideChart(event.rawX, event.rawY)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (chartGestureActive) {
+                    chartGestureActive = false
+                    return false
+                }
+            }
+        }
+        if (chartGestureActive) return false
+        return super.onInterceptTouchEvent(event)
+    }
+
+    private fun isInsideChart(rawX: Float, rawY: Float): Boolean {
+        val chart = chartView ?: return false
+        if (chart.width <= 0 || chart.height <= 0) return false
+        val location = IntArray(2)
+        chart.getLocationOnScreen(location)
+        return rawX >= location[0] && rawX <= location[0] + chart.width &&
+            rawY >= location[1] && rawY <= location[1] + chart.height
     }
 }
