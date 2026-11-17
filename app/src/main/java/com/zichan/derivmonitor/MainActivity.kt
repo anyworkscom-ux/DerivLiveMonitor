@@ -111,6 +111,17 @@ class MainActivity : AppCompatActivity() {
             gravity = Gravity.CENTER; setPadding(0, dp(22), 0, dp(5))
         })
         root.addView(action("CONTACT ZICHAN AHMED  ·  WHATSAPP", "#FFFFFF", "#173B5C", false) { openWhatsApp() })
+        root.addView(space(10))
+        root.addView(action("OPEN DERIV PARTNER LINK", "#8BDFFF", "#123B5B", false) {
+            openExternal("https://t.deriv.link?t=BV73UMYHRLFL")
+        })
+        root.addView(space(7))
+        root.addView(action("OPEN EXNESS PARTNER LINK", "#FFFFFF", "#4A3510", false) {
+            openExternal("https://one.toexness.com/a/f390hkcg2s?method=qrcode")
+        })
+        root.addView(label("Already registered through my partner link? Contact me for free activation.", 10f, secondary(), false).apply {
+            gravity = Gravity.CENTER; setPadding(0, dp(12), 0, 0)
+        })
         root.addView(label("One-time activation • Remains active until uninstall", 10f, secondary(), false).apply {
             gravity = Gravity.CENTER; setPadding(0, dp(18), 0, 0)
         })
@@ -412,6 +423,11 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
             ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 500)
         }
+    }
+
+    private fun openExternal(url: String) {
+        try { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+        catch (_: Exception) { Toast.makeText(this, "Unable to open link", Toast.LENGTH_SHORT).show() }
     }
 
     private fun openWhatsApp() {
