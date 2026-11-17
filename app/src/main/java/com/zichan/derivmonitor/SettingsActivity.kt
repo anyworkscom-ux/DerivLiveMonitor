@@ -53,11 +53,11 @@ class SettingsActivity : AppCompatActivity() {
         val scaleLabel = label("Window size  ·  ${PrefsManager.getOverlayScale(this)}%", 13f, primary(), true)
         overlayCard.addView(scaleLabel)
         val scaleBar = SeekBar(this).apply {
-            max = 70
-            progress = (PrefsManager.getOverlayScale(this@SettingsActivity) - 70).coerceIn(0, 70)
+            max = 110
+            progress = (PrefsManager.getOverlayScale(this@SettingsActivity) - 50).coerceIn(0, 110)
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
-                    val next = value + 70
+                    val next = value + 50
                     scaleLabel.text = "Window size  ·  ${next}%"
                     PrefsManager.setOverlayScale(this@SettingsActivity, next)
                 }
@@ -102,7 +102,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         overlayCard.addView(colourSpinner)
         overlayCard.addView(space(5))
-        overlayCard.addView(label("The default palette is Midnight Blue. Changes apply to the floating widget.", 10.5f, secondary(), false))
+        overlayCard.addView(label("Resize from 50% to 160%. Changes apply to the floating widget when you release the slider.", 10.5f, secondary(), false))
         root.addView(overlayCard)
         root.addView(space(12))
 
