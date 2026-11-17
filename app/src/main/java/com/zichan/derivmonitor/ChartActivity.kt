@@ -43,7 +43,7 @@ class ChartActivity : AppCompatActivity() {
     private lateinit var timeframeRow: LinearLayout
     private lateinit var chartTypeRow: LinearLayout
     private var isLight = false
-    private val frames = listOf("1m", "3m", "5m", "15m", "30m", "1h", "4h", "1D", "1W", "1M")
+    private val frames = listOf("1m", "2m", "3m", "5m", "10m", "15m", "30m", "1h", "2h", "4h", "8h", "1D", "1W", "1M")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -172,8 +172,8 @@ class ChartActivity : AppCompatActivity() {
     }
 
     private fun apiGranularity(): Int = when (timeframe) {
-        "1m" -> 60; "3m" -> 180; "5m" -> 300; "15m" -> 900; "30m" -> 1800
-        "1h" -> 3600; "4h" -> 14400; "1D", "1W", "1M" -> 86400; else -> 300
+        "1m" -> 60; "2m" -> 120; "3m" -> 180; "5m" -> 300; "10m" -> 600; "15m" -> 900; "30m" -> 1800
+        "1h" -> 3600; "2h" -> 7200; "4h" -> 14400; "8h" -> 28800; "1D", "1W", "1M" -> 86400; else -> 300
     }
 
     private fun handleHistory(json: JSONObject) {
