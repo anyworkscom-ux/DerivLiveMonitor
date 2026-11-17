@@ -216,16 +216,26 @@ class ChartActivity : AppCompatActivity() {
         val epoch = tick.optLong("epoch", System.currentTimeMillis() / 1000L)
         runOnUiThread {
             price.text = formatPrice(quote)
-            val span = when (timeframe) {
-                "1m" -> 60; "3m" -> 180; "5m" -> 300; "15m" -> 900; "30m" -> 1800
-                "1h" -> 3600; "4h" -> 14400; "1D" -> 86400; "1W" -> 604800; else -> 2592000
-            }
-            val bucket = epoch / span * span
+            val bucket = candleBucket(epoch)
             val last = bars.lastOrNull()
-            if (last == null || last.epoch / span != bucket / span) bars.add(CandleBar(bucket, quote, quote, quote, quote))
+            if (last == null || last.epoch != bucket) bars.add(CandleBar(bucket, quote, quote, quote, quote))
             else bars[bars.lastIndex] = last.copy(high = maxOf(last.high, quote), low = minOf(last.low, quote), close = quote)
             chart.setData(bars, isLight)
         }
+    }
+
+    private fun candleBucket(epoch: Long): Long {
+        if (timeframe == "1W" || timeframe == "1M") {
+            val cal = Calendar.getInstance(TimeZone.getTimeZone("UTC"), Locale.US).apply { timeInMillis = epoch * 1000L }
+            cal.set(Calendar.HOUR_OF_DAY, 0); cal.set(Calendar.MINUTE, 0); cal.set(Calendar.SECOND, 0); cal.set(Calendar.MILLISECOND, 0)
+            if (timeframe == "1W") {
+                val diff = (cal.get(Calendar.DAY_OF_WEEK) + 5) % 7
+                cal.add(Calendar.DAY_OF_MONTH, -diff)
+            } else cal.set(Calendar.DAY_OF_MONTH, 1)
+            return cal.timeInMillis / 1000L
+        }
+        val span = apiGranularity().toLong()
+        return epoch / span * span
     }
 
     private fun confirmAlert(value: Double) {
