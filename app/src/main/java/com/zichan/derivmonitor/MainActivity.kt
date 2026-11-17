@@ -205,6 +205,7 @@ class MainActivity : AppCompatActivity() {
         renderMarkets("")
         loadCatalogue()
         refreshOverlayStatus()
+        if (Settings.canDrawOverlays(this)) startOverlay()
     }
 
     private fun renderCategories() {
