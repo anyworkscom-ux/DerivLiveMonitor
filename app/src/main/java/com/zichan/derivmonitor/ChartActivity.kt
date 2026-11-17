@@ -74,7 +74,15 @@ class ChartActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(18), dp(16), dp(26)) }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         top.addView(action("‹", "#FFFFFF", "#17243A") { finish() })
-        val titleBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, -2, 1f).apply { leftMargin = dp(10) } }
+        top.addView(ImageView(this).apply {
+            setImageResource(R.drawable.ic_zichan_launcher)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply {
+                leftMargin = dp(7); rightMargin = dp(8)
+            }
+            contentDescription = "Zichan Market Monitor"
+        })
+        val titleBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; layoutParams = LinearLayout.LayoutParams(0, -2, 1f) }
         titleBox.addView(label(displayName, 16f, primary(), true))
         titleBox.addView(label(category.uppercase(Locale.US) + "  ·  " + symbol, 9.5f, secondary(), false))
         top.addView(titleBox); top.addView(action("↻", "#8BDFFF", "#123B5B") { loadHistory() })
@@ -272,7 +280,9 @@ class ChartActivity : AppCompatActivity() {
             raw.add(CandleBar(c.optLong("epoch"), c.optDouble("open"), c.optDouble("high"), c.optDouble("low"), c.optDouble("close")))
         }
         val ready = if (timeframe == "1W" || timeframe == "1M") aggregate(raw, timeframe) else raw
+        val historyPrecision = json.optInt("pip_size", -1)
         runOnUiThread {
+            if (historyPrecision >= 0) chart.setPricePrecision(historyPrecision)
             bars = ready.takeLast(500).toMutableList(); chart.setData(bars, isLight)
             setStatus("●  LIVE  ·  " + bars.size + " CANDLES", "#34D399")
             bars.lastOrNull()?.let { price.text = formatPrice(it.close) }
@@ -302,7 +312,9 @@ class ChartActivity : AppCompatActivity() {
         if (tick.optString("symbol") != symbol) return
         val quote = tick.optDouble("quote", Double.NaN); if (quote.isNaN()) return
         val epoch = tick.optLong("epoch", System.currentTimeMillis() / 1000L)
+        val tickPrecision = tick.optInt("pip_size", -1)
         runOnUiThread {
+            if (tickPrecision >= 0) chart.setPricePrecision(tickPrecision)
             price.text = formatPrice(quote)
             val bucket = candleBucket(epoch)
             val last = bars.lastOrNull()
