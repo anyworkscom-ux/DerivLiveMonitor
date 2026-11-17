@@ -516,16 +516,29 @@ class FloatingMonitorService : Service() {
             }
 
             override fun onFailure(ws: WebSocket, t: Throwable, response: Response?) {
-                isSocketOpen = false
-                endpointIdx = (endpointIdx + 1) % endpoints.size
-                mainHandler.post {
-                    headerTv?.text = "● RECONNECTING..."
-                    headerTv?.setTextColor(Color.parseColor("#FB923C"))
-                }
-                mainHandler.postDelayed({
-                    connectDerivWebSocket()
-                }, 2000)
-            }
+    isSocketOpen = false
+
+    val detail = response?.let {
+        "HTTP ${it.code}: ${it.message}"
+    } ?: "${t.javaClass.simpleName}: ${t.message ?: "Unknown error"}"
+
+    mainHandler.post {
+        headerTv?.text = "● ERROR: $detail"
+        headerTv?.setTextColor(Color.RED)
+
+        Toast.makeText(
+            this@FloatingMonitorService,
+            "Deriv Connection Error: $detail",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    endpointIdx = (endpointIdx + 1) % endpoints.size
+
+    mainHandler.postDelayed({
+        connectDerivWebSocket()
+    }, 5000)
+}
         })
     }
 
