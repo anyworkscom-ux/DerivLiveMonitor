@@ -75,7 +75,7 @@ class MainActivity : AppCompatActivity() {
             hint = "Activation code"
             inputType = 2
             setSingleLine(true)
-            setTextColor(primary()); setHintTextColor(secondary())
+            setTextColor(Color.parseColor(primary())); setHintTextColor(Color.parseColor(secondary()))
             setPadding(dp(14), dp(13), dp(14), dp(13))
             background = panel(if (isLight) "#FFFFFF" else "#0B1424", accent())
         }
@@ -169,7 +169,7 @@ class MainActivity : AppCompatActivity() {
         })
         searchInput = EditText(this).apply {
             hint = "Search Gold, Crash 50, S&P 500, EUR/USD, BTC..."
-            setHintTextColor(secondary()); setTextColor(primary()); textSize = 14f
+            setHintTextColor(Color.parseColor(secondary())); setTextColor(Color.parseColor(primary())); textSize = 14f
             isSingleLine = true; setPadding(dp(14), dp(13), dp(14), dp(13))
             background = panel(if (isLight) "#FFFFFF" else "#15243A", accent())
             addTextChangedListener(object : TextWatcher {
@@ -210,7 +210,7 @@ class MainActivity : AppCompatActivity() {
         names.forEach { name ->
             val chip = TextView(this).apply {
                 text = name; textSize = 10.5f; typeface = Typeface.DEFAULT_BOLD
-                setTextColor(if (selectedCategory == name) Color.WHITE else secondary())
+                setTextColor(if (selectedCategory == name) Color.WHITE else Color.parseColor(secondary()))
                 setPadding(dp(11), dp(9), dp(11), dp(9))
                 background = panel(if (selectedCategory == name) "#1464A5" else if (isLight) "#EDF1F6" else "#111D30",
                     if (selectedCategory == name) "#4AB8F4" else borderColor())
