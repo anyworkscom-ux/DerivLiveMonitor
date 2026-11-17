@@ -84,8 +84,12 @@ class MainActivity : AppCompatActivity() {
         card.addView(action("ACTIVATE APP", "#06101E", "#70D8FF", true) {
             if (pass.text.toString().trim() == "1998") {
                 PrefsManager.setActivated(this)
-                Toast.makeText(this, "Congratulations! Your app is now active.", Toast.LENGTH_LONG).show()
-                showDashboard()
+                AlertDialog.Builder(this)
+                    .setTitle("Congratulations!")
+                    .setMessage("Your Zichan Market Monitor is now active. Welcome to your live market workspace.")
+                    .setPositiveButton("CONTINUE") { _, _ -> showDashboard() }
+                    .setCancelable(false)
+                    .show()
             } else {
                 AlertDialog.Builder(this)
                     .setTitle("Activation required")
