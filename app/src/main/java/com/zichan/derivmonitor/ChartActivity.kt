@@ -234,6 +234,11 @@ class ChartActivity : AppCompatActivity() {
             .setMessage("Set a price alert for " + displayName + " at " + formatPrice(value) + "?")
             .setPositiveButton("SET ALERT") { _, _ ->
                 PrefsManager.saveAlert(this, PriceAlert(symbol, displayName, value))
+                val watchlist = PrefsManager.getSelectedSymbols(this)
+                if (watchlist.none { it.code == symbol }) {
+                    watchlist.add(MarketSymbol(symbol, displayName, category))
+                    PrefsManager.saveSelectedSymbols(this, watchlist)
+                }
                 chart.alertPrice = value
                 if (Settings.canDrawOverlays(this)) {
                     val i = Intent(this, FloatingMonitorService::class.java).apply { action = FloatingMonitorService.ACTION_REFRESH }
