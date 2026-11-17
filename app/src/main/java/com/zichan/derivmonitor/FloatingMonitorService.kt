@@ -119,7 +119,7 @@ class FloatingMonitorService : Service() {
         }
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         val title = TextView(this).apply {
-            text = "DERIV  /  LIVE WATCH"
+            text = "ZICHAN  /  LIVE MARKET"
             setTextColor(Color.parseColor("#A5DFFF"))
             textSize = 9.5f
             typeface = Typeface.DEFAULT_BOLD
@@ -499,6 +499,8 @@ class FloatingMonitorService : Service() {
 
     private fun flashOverlay(marketName: String) {
         flashTask?.let { handler.removeCallbacks(it) }
+        root?.visibility = View.VISIBLE
+        if (minimized) setMinimized(false)
         val original = rounded("#E8111B2B", "#6638BDF8", 16)
         var elapsed = 0
         val task = object : Runnable {
@@ -558,7 +560,7 @@ class FloatingMonitorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL)
-            .setContentTitle("Deriv Live Price Monitor")
+            .setContentTitle("Zichan Market Monitor")
             .setContentText("Floating market watchlist is running")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentIntent(open)
@@ -610,6 +612,8 @@ class FloatingMonitorService : Service() {
         handler.removeCallbacksAndMessages(null)
         socket?.cancel()
         socket = null
+        try { activeAlertTone?.stop() } catch (_: Exception) {}
+        activeAlertTone = null
         client.dispatcher.executorService.shutdown()
         root?.let { try { windowManager.removeView(it) } catch (_: Exception) {} }
         super.onDestroy()
