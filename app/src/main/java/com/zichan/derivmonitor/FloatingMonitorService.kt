@@ -85,7 +85,9 @@ class FloatingMonitorService : Service() {
             return START_NOT_STICKY
         }
         showOverlay()
-        val latest = PrefsManager.getSelectedSymbols(this).toList()
+        val watchlist = PrefsManager.getSelectedSymbols(this)
+        val alertMarkets = PrefsManager.getAlerts(this).map { MarketSymbol(it.symbol, it.displayName, "Price Alert") }
+        val latest = (watchlist + alertMarkets).distinctBy { it.code }
         val oldCodes = selected.map { it.code }
         val newCodes = latest.map { it.code }
         if (oldCodes != newCodes) {
