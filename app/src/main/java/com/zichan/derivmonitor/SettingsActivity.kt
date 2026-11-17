@@ -7,6 +7,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import android.provider.Settings
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -40,6 +42,68 @@ class SettingsActivity : AppCompatActivity() {
         themes.addView(action("○  LIGHT MODE", "#102033", "#DCEAF5") { PrefsManager.setTheme(this@SettingsActivity, "light"); recreate() }, LinearLayout.LayoutParams(0, -2, 1f))
         themeCard.addView(themes)
         root.addView(themeCard)
+        root.addView(space(12))
+
+        val overlayCard = card()
+        overlayCard.addView(label("FLOATING MONITOR APPEARANCE", 11f, accent(), true))
+        overlayCard.addView(label("Adjust the on-screen widget without changing live market data.", 11f, secondary(), false).apply {
+            setPadding(0, dp(5), 0, dp(10))
+        })
+
+        val scaleLabel = label("Window size  ·  ${PrefsManager.getOverlayScale(this)}%", 13f, primary(), true)
+        overlayCard.addView(scaleLabel)
+        val scaleBar = SeekBar(this).apply {
+            max = 70
+            progress = (PrefsManager.getOverlayScale(this@SettingsActivity) - 70).coerceIn(0, 70)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
+                    val next = value + 70
+                    scaleLabel.text = "Window size  ·  ${next}%"
+                    PrefsManager.setOverlayScale(this@SettingsActivity, next)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) { refreshOverlay() }
+            })
+        }
+        overlayCard.addView(scaleBar)
+        overlayCard.addView(space(8))
+
+        val opacityLabel = label("Transparency  ·  ${PrefsManager.getOpacity(this)}%", 13f, primary(), true)
+        overlayCard.addView(opacityLabel)
+        val opacityBar = SeekBar(this).apply {
+            max = 75
+            progress = (PrefsManager.getOpacity(this@SettingsActivity) - 25).coerceIn(0, 75)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
+                    val next = value + 25
+                    opacityLabel.text = "Transparency  ·  ${next}%"
+                    PrefsManager.setOpacity(this@SettingsActivity, next)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) { refreshOverlay() }
+            })
+        }
+        overlayCard.addView(opacityBar)
+        overlayCard.addView(space(8))
+        overlayCard.addView(label("Widget colour", 13f, primary(), true))
+        val colourNames = arrayOf("Midnight Blue  ·  Default", "Graphite", "Emerald", "Royal Violet")
+        val colourSpinner = Spinner(this)
+        val colourAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, colourNames).apply {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        colourSpinner.adapter = colourAdapter
+        colourSpinner.setSelection(PrefsManager.getOverlayColor(this), false)
+        colourSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                PrefsManager.setOverlayColor(this@SettingsActivity, position)
+                refreshOverlay()
+            }
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) {}
+        }
+        overlayCard.addView(colourSpinner)
+        overlayCard.addView(space(5))
+        overlayCard.addView(label("The default palette is Midnight Blue. Changes apply to the floating widget.", 10.5f, secondary(), false))
+        root.addView(overlayCard)
         root.addView(space(12))
 
         val activation = card()
@@ -107,6 +171,14 @@ class SettingsActivity : AppCompatActivity() {
             pixels[y * size + x] = if (matrix[x, y]) Color.rgb(5, 12, 24) else Color.WHITE
         }
         return Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
+    }
+
+    private fun refreshOverlay() {
+        if (!Settings.canDrawOverlays(this)) return
+        val intent = Intent(this, FloatingMonitorService::class.java).apply {
+            action = FloatingMonitorService.ACTION_REFRESH
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) startForegroundService(intent) else startService(intent)
     }
 
     private fun open(url: String) {
