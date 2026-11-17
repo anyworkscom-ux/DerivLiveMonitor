@@ -138,7 +138,7 @@ class MarketChartView(context: Context) : View(context) {
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        canvas.drawColor(if (light) Color.rgb(8, 15, 27) else Color.rgb(8, 15, 27))
+        canvas.drawColor(if (light) Color.rgb(249, 251, 254) else Color.rgb(8, 15, 27))
         plot = RectF(dp(12f), dp(18f), width - dp(70f), height - dp(34f))
         axis.color = if (light) Color.rgb(174, 188, 207) else Color.rgb(145, 160, 182)
         grid.color = if (light) Color.argb(38, 185, 198, 216) else Color.argb(42, 135, 157, 184)
@@ -332,7 +332,7 @@ class MarketChartView(context: Context) : View(context) {
                 startPriceOffset = priceOffset
                 selectedMarkIndex = -1
                 when {
-                    alertPlacementMode -> {
+                    alertPlacementMode || (alertPrice != null && abs(y - yFor(alertPrice!!)) <= dp(18f)) -> {
                         gestureMode = GestureMode.PLACE_ALERT
                         previewPrice = valueForY(y); alertPrice = previewPrice
                     }
