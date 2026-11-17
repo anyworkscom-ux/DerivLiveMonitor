@@ -50,7 +50,7 @@ object PrefsManager {
     fun setTextSizeSp(context: Context, value: Float) = prefs(context).edit().putFloat(KEY_TEXT_SIZE, value.coerceIn(10f, 20f)).apply()
 
     fun getOverlayScale(context: Context) = prefs(context).getInt(KEY_OVERLAY_SCALE, 100)
-    fun setOverlayScale(context: Context, value: Int) = prefs(context).edit().putInt(KEY_OVERLAY_SCALE, value.coerceIn(70, 140)).apply()
+    fun setOverlayScale(context: Context, value: Int) = prefs(context).edit().putInt(KEY_OVERLAY_SCALE, value.coerceIn(50, 160)).apply()
     fun getOverlayColor(context: Context) = prefs(context).getInt(KEY_OVERLAY_COLOR, 0)
     fun setOverlayColor(context: Context, value: Int) = prefs(context).edit().putInt(KEY_OVERLAY_COLOR, value.coerceIn(0, 3)).apply()
 
