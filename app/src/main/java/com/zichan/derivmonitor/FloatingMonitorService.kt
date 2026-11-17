@@ -175,14 +175,35 @@ class FloatingMonitorService : Service() {
 
     private fun applyStyle() {
         val opacity = PrefsManager.getOpacity(this)
-        val alpha = (opacity * 255 / 100).coerceIn(64, 255)
-        root?.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(Color.argb(alpha, 17, 27, 43))
-            setStroke(dp(1), Color.argb(190, 56, 189, 248))
+        val alpha = (opacity * 255 / 100).coerceIn(48, 255)
+        val palette = when (PrefsManager.getOverlayColor(this)) {
+            1 -> intArrayOf(Color.rgb(24, 31, 45), Color.rgb(110, 130, 158))
+            2 -> intArrayOf(Color.rgb(12, 48, 42), Color.rgb(52, 211, 153))
+            3 -> intArrayOf(Color.rgb(39, 29, 62), Color.rgb(183, 149, 255))
+            else -> intArrayOf(Color.rgb(17, 27, 43), Color.rgb(56, 189, 248))
         }
+        root?.apply {
+            pivotX = 0f
+            pivotY = 0f
+            val scale = PrefsManager.getOverlayScale(this@FloatingMonitorService) / 100f
+            scaleX = scale
+            scaleY = scale
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                setColor(Color.argb(alpha, Color.red(palette[0]), Color.green(palette[0]), Color.blue(palette[0])))
+                setStroke(dp(1), Color.argb(210, Color.red(palette[1]), Color.green(palette[1]), Color.blue(palette[1])))
+            }
+        }
+        header?.setTextColor(palette[1])
         val size = PrefsManager.getTextSizeSp(this)
+        rows?.let { container ->
+            for (i in 0 until container.childCount) {
+                val row = container.getChildAt(i) as? LinearLayout ?: continue
+                (row.getChildAt(0) as? TextView)?.setTextSize(TypedValue.COMPLEX_UNIT_SP, (size - 1f).coerceAtLeast(9f))
+                (row.getChildAt(1) as? TextView)?.setTextSize(TypedValue.COMPLEX_UNIT_SP, size)
+            }
+        }
         priceViews.values.forEach { it.setTextSize(TypedValue.COMPLEX_UNIT_SP, size) }
     }
 
