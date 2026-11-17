@@ -473,7 +473,7 @@ class FloatingMonitorService : Service() {
         val notification = NotificationCompat.Builder(this, ALERT_CHANNEL)
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setContentTitle("Zichan Market Monitor")
-            .setContentText(alert.displayName + " reached your price level")
+            .setContentText("Sir, your set price level has been touched or crossed.")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
                 alert.displayName + " touched or crossed " +
                 String.format(Locale.US, "%.5f", alert.targetPrice) +
@@ -483,7 +483,8 @@ class FloatingMonitorService : Service() {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
             .setContentIntent(open)
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setDefaults(NotificationCompat.DEFAULT_VIBRATE)
+            .setVibrate(longArrayOf(0, 220, 140, 220))
             .build()
         manager.notify(3100 + (alert.symbol.hashCode() and 0x3ff), notification)
         flashOverlay(alert.displayName)
@@ -576,9 +577,9 @@ class FloatingMonitorService : Service() {
             val alertChannel = NotificationChannel(ALERT_CHANNEL, "Price Alerts", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "Sound and visual notifications when a watched price reaches its alert level"
                 enableVibration(true)
-                val sound = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                setSound(sound, AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ALARM).build())
+                // The app plays the alarm explicitly and stops it after 1.8 seconds.
+                // Keep the notification channel silent to avoid a long duplicate ringtone.
+                setSound(null, null)
                 lockscreenVisibility = Notification.VISIBILITY_PUBLIC
             }
             manager.createNotificationChannel(alertChannel)
