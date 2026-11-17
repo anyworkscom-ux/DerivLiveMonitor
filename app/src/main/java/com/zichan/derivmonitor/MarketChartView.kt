@@ -107,6 +107,8 @@ class MarketChartView(context: Context) : View(context) {
 
     private fun drawMarks(canvas: Canvas) {
         val all = marks.toMutableList(); activeMark?.let { all.add(it) }
+        canvas.save()
+        canvas.clipRect(plot)
         all.forEach { mark ->
             when (mark.tool) {
                 DrawingTool.TRENDLINE -> canvas.drawLine(mark.x1, mark.y1, mark.x2, mark.y2, toolPaint)
@@ -115,10 +117,14 @@ class MarketChartView(context: Context) : View(context) {
                     val endY = if (dx == 0f) mark.y2 else mark.y1 + dy / dx * (plot.right - mark.x1)
                     canvas.drawLine(mark.x1, mark.y1, plot.right, endY, toolPaint)
                 }
-                DrawingTool.RECTANGLE -> canvas.drawRect(mark.x1, mark.y1, mark.x2, mark.y2, toolPaint)
+                DrawingTool.RECTANGLE -> canvas.drawRect(
+                    min(mark.x1, mark.x2), min(mark.y1, mark.y2),
+                    max(mark.x1, mark.x2), max(mark.y1, mark.y2), toolPaint
+                )
                 else -> Unit
             }
         }
+        canvas.restore()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
