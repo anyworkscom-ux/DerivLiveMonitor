@@ -7,6 +7,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.Bundle
 import android.provider.Settings
 import android.util.TypedValue
@@ -31,6 +33,10 @@ class ChartActivity : AppCompatActivity() {
     private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(0, TimeUnit.MILLISECONDS).pingInterval(25, TimeUnit.SECONDS).build()
     private var socket: WebSocket? = null
     private var socketReady = false
+    private val reconnectHandler = Handler(Looper.getMainLooper())
+    private var reconnectTask: Runnable? = null
+    private var reconnectAttempt = 0
+    private var socketGeneration = 0
     private var symbol = ""
     private var displayName = ""
     private var category = ""
@@ -174,14 +180,21 @@ class ChartActivity : AppCompatActivity() {
     }
 
     private fun connect() {
+        if (socketReady || isFinishing || isDestroyed) return
+        reconnectTask?.let { reconnectHandler.removeCallbacks(it) }
+        reconnectTask = null
+        val generation = ++socketGeneration
         setStatus("●  CONNECTING TO DERIV", "#FBBF24")
-        socket = client.newWebSocket(Request.Builder().url(endpoint).build(), object : WebSocketListener() {
+        val newSocket = client.newWebSocket(Request.Builder().url(endpoint).build(), object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (generation != socketGeneration) { webSocket.cancel(); return }
                 socketReady = true
+                reconnectAttempt = 0
                 requestHistory(webSocket)
                 webSocket.send(JSONObject().put("ticks", symbol).put("subscribe", 1).toString())
             }
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (generation != socketGeneration) return
                 try {
                     val json = JSONObject(text)
                     if (json.has("error")) {
@@ -195,11 +208,34 @@ class ChartActivity : AppCompatActivity() {
                 } catch (_: Exception) { runOnUiThread { setStatus("●  INVALID MARKET DATA", "#FCA5A5") } }
             }
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                if (generation != socketGeneration) return
                 socketReady = false
-                runOnUiThread { setStatus("●  CONNECTION ERROR  ·  " + (response?.code ?: t.javaClass.simpleName), "#FCA5A5") }
+                socket = null
+                runOnUiThread { setStatus("●  CONNECTION LOST  ·  " + (response?.code ?: t.javaClass.simpleName), "#FCA5A5") }
+                scheduleReconnect()
             }
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) { socketReady = false }
+            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                if (generation != socketGeneration) return
+                socketReady = false
+                socket = null
+                scheduleReconnect()
+            }
         })
+        socket = newSocket
+    }
+
+    private fun scheduleReconnect() {
+        if (isFinishing || isDestroyed) return
+        reconnectTask?.let { reconnectHandler.removeCallbacks(it) }
+        val delay = (2000L shl reconnectAttempt.coerceAtMost(4)).coerceAtMost(30000L)
+        reconnectAttempt++
+        setStatus("●  RECONNECTING IN " + (delay / 1000) + "s", "#FBBF24")
+        val task = Runnable {
+            reconnectTask = null
+            if (!isFinishing && !isDestroyed && !socketReady) connect()
+        }
+        reconnectTask = task
+        reconnectHandler.postDelayed(task, delay)
     }
 
     private fun requestHistory(ws: WebSocket) {
@@ -209,7 +245,11 @@ class ChartActivity : AppCompatActivity() {
     }
 
     private fun loadHistory() {
-        if (!socketReady) return
+        if (!socketReady) {
+            setStatus("●  RECONNECTING TO DERIV", "#FBBF24")
+            connect()
+            return
+        }
         bars.clear(); chart.setData(emptyList(), isLight)
         setStatus("●  LOADING " + timeframe + " HISTORY", "#FBBF24")
         socket?.let { requestHistory(it) }
@@ -379,5 +419,13 @@ class ChartActivity : AppCompatActivity() {
     private fun secondary()=if(isLight)"#65748B" else "#91A0B6"
     private fun accent()=if(isLight)"#087BB8" else "#67D5FF"
     private fun border()=if(isLight)"#D9E2EE" else "#27364C"
-    override fun onDestroy() { socket?.cancel(); client.dispatcher.executorService.shutdown(); super.onDestroy() }
+    override fun onDestroy() {
+        socketGeneration++
+        reconnectTask?.let { reconnectHandler.removeCallbacks(it) }
+        reconnectHandler.removeCallbacksAndMessages(null)
+        socket?.cancel()
+        socket = null
+        client.dispatcher.executorService.shutdown()
+        super.onDestroy()
+    }
 }
