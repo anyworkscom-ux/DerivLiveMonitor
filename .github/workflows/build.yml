@@ -2,7 +2,7 @@ name: Build Deriv Live Monitor APK
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: [ "main", "master", "feature/zichan-market-monitor" ]
   workflow_dispatch:
 
 jobs:
