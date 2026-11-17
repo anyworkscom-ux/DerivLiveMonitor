@@ -183,7 +183,11 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.HORIZONTAL
             setPadding(0, dp(12), 0, dp(7))
         }
-        root.addView(categoryLayout)
+        val categoryScroll = HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(categoryLayout)
+        }
+        root.addView(categoryScroll)
         resultsLayout = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         root.addView(resultsLayout)
 
