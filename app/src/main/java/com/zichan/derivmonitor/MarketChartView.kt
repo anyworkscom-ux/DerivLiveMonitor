@@ -211,17 +211,12 @@ class MarketChartView(context: Context) : View(context) {
     private fun drawGrid(canvas: Canvas) {
         axis.textSize = dp(9.5f)
         axis.textAlign = Paint.Align.LEFT
-        val step = nicePriceStep((maxPrice - minPrice) / 6.0)
-        var value = ceil(minPrice / step) * step
-        var count = 0
-        while (value <= maxPrice + step * 0.000001 && count < 40) {
+        val step = (maxPrice - minPrice) / 12.0
+        for (i in 0..12) {
+            val value = maxPrice - step * i
             val y = yFor(value)
-            if (y in plot.top..plot.bottom) {
-                canvas.drawLine(plot.left, y, plot.right, y, grid)
-                canvas.drawText(format(value), plot.right + dp(6f), y + dp(3.5f), axis)
-            }
-            value += step
-            count++
+            canvas.drawLine(plot.left, y, plot.right, y, grid)
+            canvas.drawText(format(value), plot.right + dp(6f), y + dp(3.5f), axis)
         }
         for (i in 0..5) {
             val x = plot.left + plot.width() * i / 5f
