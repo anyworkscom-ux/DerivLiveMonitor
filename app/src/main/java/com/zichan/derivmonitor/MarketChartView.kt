@@ -185,9 +185,9 @@ class MarketChartView(context: Context) : View(context) {
         if (emaEnabled) drawEma(canvas)
         drawMarks(canvas)
         drawAlert(canvas)
+        canvas.restore()
         drawCurrentPrice(canvas)
         drawCrosshair(canvas)
-        canvas.restore()
         drawTimeAxis(canvas)
     }
 
@@ -543,7 +543,11 @@ class MarketChartView(context: Context) : View(context) {
                         }
                         GestureMode.DRAW -> {
                             val old = activeMark ?: return true
-                            activeMark = old.copy(index2 = indexForX(x), price2 = valueForY(y))
+                            val nextIndex = indexForX(x)
+                            val nextPrice = valueForY(y)
+                            activeMark = if (old.tool == DrawingTool.HORIZONTAL) {
+                                old.copy(index2 = nextIndex, price1 = nextPrice, price2 = nextPrice)
+                            } else old.copy(index2 = nextIndex, price2 = nextPrice)
                         }
                         GestureMode.EDIT_MARK -> {
                             val original = originalSelectedMark ?: return true
