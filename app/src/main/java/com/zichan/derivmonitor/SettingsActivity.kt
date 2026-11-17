@@ -68,7 +68,7 @@ class SettingsActivity : AppCompatActivity() {
         overlayCard.addView(scaleBar)
         overlayCard.addView(space(8))
 
-        val opacityLabel = label("Transparency  ·  ${PrefsManager.getOpacity(this)}%", 13f, primary(), true)
+        val opacityLabel = label("Opacity  ·  ${PrefsManager.getOpacity(this)}%", 13f, primary(), true)
         overlayCard.addView(opacityLabel)
         val opacityBar = SeekBar(this).apply {
             max = 75
@@ -76,7 +76,7 @@ class SettingsActivity : AppCompatActivity() {
             setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
                     val next = value + 25
-                    opacityLabel.text = "Transparency  ·  ${next}%"
+                    opacityLabel.text = "Opacity  ·  ${next}%"
                     PrefsManager.setOpacity(this@SettingsActivity, next)
                 }
                 override fun onStartTrackingTouch(seekBar: SeekBar?) {}
