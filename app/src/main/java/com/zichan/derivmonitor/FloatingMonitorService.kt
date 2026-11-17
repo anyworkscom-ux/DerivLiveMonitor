@@ -53,7 +53,7 @@ class FloatingMonitorService : Service() {
         .retryOnConnectionFailure(true)
         .build()
 
-    private val endpoint = "wss://ws.derivws.com/websockets/v3?app_id=1089"
+    private val endpoint = "wss://api.derivws.com/trading/v1/options/ws/public"
     private var socket: WebSocket? = null
     private var socketOpen = false
     private var connecting = false
