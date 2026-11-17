@@ -118,7 +118,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(label("Search live Deriv instruments by name, symbol or market.", 12f, "#94A3B8", false).apply { setPadding(0, 0, 0, dp(10)) })
         searchInput = EditText(this).apply {
             hint = "Search Gold, Crash 50, S&P 500, EUR/USD, BTC..."
-            setHintTextColor(Color.parseColor("#718096")); setTextColor(Color.WHITE); textSize = 14f; singleLine = true
+            setHintTextColor(Color.parseColor("#718096")); setTextColor(Color.WHITE); textSize = 14f; isSingleLine = true
             setPadding(dp(14), dp(12), dp(14), dp(12)); background = panel("#17243A", "#2563EB")
             addTextChangedListener(object : TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
