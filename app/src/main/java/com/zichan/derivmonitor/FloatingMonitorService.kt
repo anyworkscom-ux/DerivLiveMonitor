@@ -454,8 +454,8 @@ class FloatingMonitorService : Service() {
     private fun checkPriceAlert(rowKey: String, previous: Double, current: Double) {
         val alert = PrefsManager.getAlerts(this).firstOrNull {
             it.symbol == rowKey && !it.triggered &&
-                ((previous < it.targetPrice && current >= it.targetPrice) ||
-                 (previous > it.targetPrice && current <= it.targetPrice))
+                ((previous <= it.targetPrice && current >= it.targetPrice) ||
+                 (previous >= it.targetPrice && current <= it.targetPrice))
         } ?: return
         PrefsManager.markAlertTriggered(this, rowKey)
         triggerPriceAlert(alert, current)
