@@ -25,7 +25,7 @@ private data class ChartMark(
     val price2: Double
 )
 
-private enum class GestureMode { NONE, PAN, PINCH, DRAW, EDIT_MARK, PLACE_ALERT }
+private enum class GestureMode { NONE, PAN, PINCH, PRICE_SCALE, DRAW, EDIT_MARK, PLACE_ALERT }
 
 class MarketChartView(context: Context) : View(context) {
     private val grid = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(42, 135, 157, 184); strokeWidth = dp(1f) }
@@ -326,11 +326,16 @@ class MarketChartView(context: Context) : View(context) {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                if (!plot.contains(event.x, event.y)) return false
+                val onPriceAxis = event.x > plot.right && event.x < width && event.y in plot.top..plot.bottom
+                if (!plot.contains(event.x, event.y) && !onPriceAxis) return false
                 parent?.requestDisallowInterceptTouchEvent(true)
                 downX = x; downY = y; lastX = x; lastY = y; moved = false
                 startPriceOffset = priceOffset
                 selectedMarkIndex = -1
+                if (onPriceAxis) {
+                    gestureMode = GestureMode.PRICE_SCALE
+                    return true
+                }
                 when {
                     alertPlacementMode || (alertPrice != null && abs(y - yFor(alertPrice!!)) <= dp(18f)) -> {
                         gestureMode = GestureMode.PLACE_ALERT
@@ -388,6 +393,10 @@ class MarketChartView(context: Context) : View(context) {
                             .coerceIn(0f, max(0f, bars.size - visibleCount))
                         val range = maxPrice - minPrice
                         priceOffset += dy.toDouble() * range / plot.height().coerceAtLeast(1f)
+                    }
+                    GestureMode.PRICE_SCALE -> {
+                        val dy = y - lastY
+                        priceZoom = (priceZoom * kotlin.math.exp(dy * 0.006f)).coerceIn(0.25f, 8f)
                     }
                     GestureMode.PLACE_ALERT -> {
                         previewPrice = valueForY(y); alertPrice = previewPrice
