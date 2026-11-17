@@ -13,6 +13,10 @@ import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.log10
+import kotlin.math.pow
 
 data class CandleBar(val epoch: Long, val open: Double, val high: Double, val low: Double, val close: Double)
 enum class DrawingTool { NONE, HORIZONTAL, TRENDLINE, RAY, RECTANGLE }
@@ -51,6 +55,11 @@ class MarketChartView(context: Context) : View(context) {
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE; textSize = dp(9f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
 
     private var bars: List<CandleBar> = emptyList()
+    private var firstBarEpoch: Long? = null
+    private var pricePrecision = 4
+    private var crosshairVisible = false
+    private var crosshairX = 0f
+    private var crosshairY = 0f
     private val marks = mutableListOf<ChartMark>()
     private var activeMark: ChartMark? = null
     private var selectedMarkIndex = -1
@@ -106,7 +115,14 @@ class MarketChartView(context: Context) : View(context) {
 
     fun setData(data: List<CandleBar>, lightMode: Boolean = false) {
         val wasEmpty = bars.isEmpty()
-        bars = data.takeLast(500)
+        val oldFirstEpoch = firstBarEpoch
+        val nextBars = data.takeLast(500)
+        if (!wasEmpty && !autoFollow && nextBars.isNotEmpty() && oldFirstEpoch != null && nextBars.first().epoch > oldFirstEpoch) {
+            val dropped = bars.count { it.epoch < nextBars.first().epoch }
+            startIndex = (startIndex - dropped).coerceAtLeast(0f)
+        }
+        bars = nextBars
+        firstBarEpoch = bars.firstOrNull()?.epoch
         light = lightMode
         if (bars.isNotEmpty()) {
             if (wasEmpty) {
@@ -116,7 +132,13 @@ class MarketChartView(context: Context) : View(context) {
             } else if (autoFollow) {
                 startIndex = max(0f, bars.size - visibleCount)
             }
+            startIndex = startIndex.coerceIn(0f, maxStartIndex())
         }
+        invalidate()
+    }
+
+    fun setPricePrecision(digits: Int) {
+        pricePrecision = digits.coerceIn(0, 8)
         invalidate()
     }
 
@@ -145,7 +167,7 @@ class MarketChartView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         canvas.drawColor(if (light) Color.rgb(249, 251, 254) else Color.rgb(8, 15, 27))
-        plot = RectF(dp(12f), dp(18f), width - dp(70f), height - dp(34f))
+        plot = RectF(dp(12f), dp(18f), width - dp(88f), height - dp(34f))
         axis.color = if (light) Color.rgb(174, 188, 207) else Color.rgb(145, 160, 182)
         grid.color = if (light) Color.argb(38, 185, 198, 216) else Color.argb(42, 135, 157, 184)
 
@@ -157,10 +179,15 @@ class MarketChartView(context: Context) : View(context) {
 
         calculatePriceRange()
         drawGrid(canvas)
+        canvas.save()
+        canvas.clipRect(plot)
         if (lineMode) drawLineChart(canvas) else drawCandles(canvas)
         if (emaEnabled) drawEma(canvas)
         drawMarks(canvas)
         drawAlert(canvas)
+        drawCurrentPrice(canvas)
+        drawCrosshair(canvas)
+        canvas.restore()
         drawTimeAxis(canvas)
     }
 
@@ -183,11 +210,18 @@ class MarketChartView(context: Context) : View(context) {
 
     private fun drawGrid(canvas: Canvas) {
         axis.textSize = dp(9.5f)
-        for (i in 0..5) {
-            val y = plot.top + plot.height() * i / 5f
-            canvas.drawLine(plot.left, y, plot.right, y, grid)
-            val value = maxPrice - (maxPrice - minPrice) * i / 5.0
-            canvas.drawText(format(value), plot.right + dp(5f), y + dp(3f), axis)
+        axis.textAlign = Paint.Align.LEFT
+        val step = nicePriceStep((maxPrice - minPrice) / 6.0)
+        var value = ceil(minPrice / step) * step
+        var count = 0
+        while (value <= maxPrice + step * 0.000001 && count < 40) {
+            val y = yFor(value)
+            if (y in plot.top..plot.bottom) {
+                canvas.drawLine(plot.left, y, plot.right, y, grid)
+                canvas.drawText(format(value), plot.right + dp(6f), y + dp(3.5f), axis)
+            }
+            value += step
+            count++
         }
         for (i in 0..5) {
             val x = plot.left + plot.width() * i / 5f
@@ -198,6 +232,22 @@ class MarketChartView(context: Context) : View(context) {
             style = Paint.Style.STROKE; strokeWidth = dp(1f)
         }
         canvas.drawRect(plot, border)
+        canvas.drawLine(plot.right + dp(2f), plot.top, plot.right + dp(2f), plot.bottom, grid)
+    }
+
+    private fun nicePriceStep(raw: Double): Double {
+        if (!raw.isFinite() || raw <= 0.0) return 1.0
+        val exponent = floor(log10(raw))
+        val magnitude = 10.0.pow(exponent)
+        val fraction = raw / magnitude
+        val nice = when {
+            fraction <= 1.0 -> 1.0
+            fraction <= 2.0 -> 2.0
+            fraction <= 2.5 -> 2.5
+            fraction <= 5.0 -> 5.0
+            else -> 10.0
+        }
+        return nice * magnitude
     }
 
     private fun drawCandles(canvas: Canvas) {
@@ -297,8 +347,59 @@ class MarketChartView(context: Context) : View(context) {
         if (alertPlacementMode && previewPrice != null) {
             val y = yFor(previewPrice!!)
             canvas.drawLine(plot.left, y, plot.right, y, alertPaint)
-            drawPriceTag(canvas, "MOVE TO TARGET", y, Color.rgb(247, 181, 68))
+            drawPriceTag(canvas, "TARGET  " + format(previewPrice!!), y, Color.rgb(247, 181, 68))
         }
+    }
+
+    private fun drawCurrentPrice(canvas: Canvas) {
+        val value = bars.lastOrNull()?.close ?: return
+        val y = yFor(value)
+        if (y < plot.top || y > plot.bottom) return
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (light) Color.rgb(14, 142, 132) else Color.rgb(48, 190, 166)
+            strokeWidth = dp(1f)
+            pathEffect = DashPathEffect(floatArrayOf(dp(3f), dp(4f)), 0f)
+        }
+        canvas.drawLine(plot.left, y, plot.right, y, p)
+        drawAxisTag(canvas, format(value), y, p.color)
+    }
+
+    private fun drawCrosshair(canvas: Canvas) {
+        if (!crosshairVisible || crosshairX < plot.left || crosshairX > plot.right || crosshairY < plot.top || crosshairY > plot.bottom) return
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = if (light) Color.rgb(65, 83, 108) else Color.rgb(205, 218, 235)
+            strokeWidth = dp(1f)
+            pathEffect = DashPathEffect(floatArrayOf(dp(3f), dp(4f)), 0f)
+        }
+        canvas.drawLine(crosshairX, plot.top, crosshairX, plot.bottom, p)
+        canvas.drawLine(plot.left, crosshairY, plot.right, crosshairY, p)
+        val dot = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = p.color; style = Paint.Style.FILL }
+        canvas.drawCircle(crosshairX, crosshairY, dp(3f), dot)
+        drawAxisTag(canvas, format(valueForY(crosshairY)), crosshairY, if (light) Color.rgb(45, 72, 105) else Color.rgb(64, 91, 125))
+        val index = indexForX(crosshairX).toInt().coerceIn(0, bars.lastIndex)
+        val time = java.text.SimpleDateFormat("MMM dd  HH:mm", java.util.Locale.US)
+            .format(java.util.Date(bars[index].epoch * 1000L))
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE; textSize = dp(9f); typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+        val labelWidth = textPaint.measureText(time) + dp(12f)
+        val left = (crosshairX - labelWidth / 2f).coerceIn(plot.left, plot.right - labelWidth)
+        val top = plot.bottom + dp(5f)
+        val bg = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = if (light) Color.rgb(45, 72, 105) else Color.rgb(40, 61, 88) }
+        canvas.drawRoundRect(RectF(left, top, left + labelWidth, top + dp(17f)), dp(4f), dp(4f), bg)
+        canvas.drawText(time, left + dp(6f), top + dp(12f), textPaint)
+    }
+
+    private fun drawAxisTag(canvas: Canvas, text: String, y: Float, color: Int) {
+        val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { textSize = dp(9f); typeface = android.graphics.Typeface.DEFAULT_BOLD }
+        val w = p.measureText(text) + dp(10f)
+        val h = dp(18f)
+        val top = (y - h / 2f).coerceIn(plot.top, plot.bottom - h)
+        val rect = RectF(plot.right + dp(3f), top, min(width - dp(2f), plot.right + dp(3f) + w), top + h)
+        p.color = color
+        canvas.drawRoundRect(rect, dp(3f), dp(3f), p)
+        p.color = Color.WHITE
+        canvas.drawText(text, rect.left + dp(5f), rect.bottom - dp(5f), p)
     }
 
     private fun drawPriceTag(canvas: Canvas, text: String, y: Float, color: Int) {
@@ -342,6 +443,9 @@ class MarketChartView(context: Context) : View(context) {
                 downY = y
                 lastX = x
                 lastY = y
+                crosshairX = x
+                crosshairY = y
+                crosshairVisible = true
                 moved = false
                 startPriceOffset = priceOffset
                 originalAlertPrice = alertPrice
@@ -398,6 +502,8 @@ class MarketChartView(context: Context) : View(context) {
 
             MotionEvent.ACTION_MOVE -> {
                 moved = true
+                crosshairX = x
+                crosshairY = y
                 if (gestureMode == GestureMode.PINCH && event.pointerCount >= 2) {
                     val distance = pointerDistance(event).coerceAtLeast(1f)
                     val factor = (distance / pinchStartDistance).coerceIn(0.25f, 4f)
@@ -408,7 +514,7 @@ class MarketChartView(context: Context) : View(context) {
                     visibleCount = (pinchStartVisibleCount / factor)
                         .coerceIn(12f, bars.size.toFloat().coerceAtLeast(12f))
                     startIndex = (pinchAnchorIndex - visibleCount * anchorRatio)
-                        .coerceIn(0f, max(0f, bars.size - visibleCount))
+                        .coerceIn(0f, maxStartIndex())
 
                     val anchorY = centerY.coerceIn(plot.top, plot.bottom)
                     priceZoom = (pinchStartPriceZoom * factor).coerceIn(0.25f, 8f)
@@ -420,7 +526,7 @@ class MarketChartView(context: Context) : View(context) {
                             val dx = x - lastX
                             val dy = y - lastY
                             startIndex = (startIndex - dx / plot.width().coerceAtLeast(1f) * visibleCount)
-                                .coerceIn(0f, max(0f, bars.size - visibleCount))
+                                .coerceIn(0f, maxStartIndex())
                             val range = (maxPrice - minPrice).coerceAtLeast(0.0000001)
                             priceOffset += dy.toDouble() * range / plot.height().coerceAtLeast(1f)
                         }
@@ -566,6 +672,8 @@ class MarketChartView(context: Context) : View(context) {
         return hypot(dx, dy)
     }
 
+    private fun maxStartIndex(): Float = max(0f, bars.size - visibleCount + 12f)
+
     private fun xForIndex(index: Float): Float = plot.left + ((index - startIndex) / visibleCount.coerceAtLeast(1f)) * plot.width()
     private fun indexForX(x: Float): Float = startIndex + ((x - plot.left) / plot.width().coerceAtLeast(1f)) * visibleCount
     private fun yFor(price: Double): Float = plot.top + ((maxPrice - price) / (maxPrice - minPrice)).toFloat() * plot.height()
@@ -574,10 +682,7 @@ class MarketChartView(context: Context) : View(context) {
         return maxPrice - ratio * (maxPrice - minPrice)
     }
 
-    private fun format(value: Double): String {
-        val digits = when { abs(value) >= 10000 -> 2; abs(value) >= 100 -> 3; abs(value) >= 1 -> 4; else -> 5 }
-        return String.format(java.util.Locale.US, "%." + digits + "f", value)
-    }
+    private fun format(value: Double): String = String.format(java.util.Locale.US, "%." + pricePrecision + "f", value)
 
     private fun dp(value: Float) = value * resources.displayMetrics.density
 }
