@@ -43,6 +43,10 @@ class ChartActivity : AppCompatActivity() {
     private lateinit var timeframeRow: LinearLayout
     private lateinit var chartTypeRow: LinearLayout
     private var isLight = false
+    private var emaEnabled = true
+    private var emaPeriod = 9
+    private var emaShift = 0
+    private lateinit var emaSettingsButton: TextView
     private val frames = listOf("1m", "2m", "3m", "5m", "10m", "15m", "30m", "1h", "2h", "4h", "8h", "1D", "1W", "1M")
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -51,6 +55,9 @@ class ChartActivity : AppCompatActivity() {
         displayName = intent.getStringExtra(EXTRA_NAME).orEmpty()
         category = intent.getStringExtra(EXTRA_CATEGORY).orEmpty()
         isLight = PrefsManager.getTheme(this) == "light"
+        emaEnabled = PrefsManager.getEmaEnabled(this)
+        emaPeriod = PrefsManager.getEmaPeriod(this)
+        emaShift = PrefsManager.getEmaShift(this)
         if (symbol.isBlank()) { finish(); return }
         buildScreen(); connect()
     }
@@ -77,6 +84,30 @@ class ChartActivity : AppCompatActivity() {
         val frameScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
         timeframeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, dp(10)) }
         frameScroll.addView(timeframeRow); root.addView(frameScroll)
+
+        val indicatorRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(0, dp(2), 0, dp(10))
+        }
+        val emaSwitch = Switch(this).apply {
+            text = "EMA"
+            textSize = 11f
+            setTextColor(Color.parseColor(primary()))
+            isChecked = emaEnabled
+            setOnCheckedChangeListener { _, checked ->
+                emaEnabled = checked
+                PrefsManager.setEmaEnabled(this@ChartActivity, checked)
+                if (::chart.isInitialized) chart.setEmaSettings(emaEnabled, emaPeriod, emaShift)
+            }
+        }
+        emaSettingsButton = action("EMA 9  ·  SHIFT 0", "#8BE5B1", "#123D35") { showEmaSettingsDialog() }
+        updateEmaButton()
+        indicatorRow.addView(emaSwitch)
+        indicatorRow.addView(View(this).apply { layoutParams = LinearLayout.LayoutParams(0, 1, 1f) })
+        indicatorRow.addView(emaSettingsButton)
+        root.addView(indicatorRow)
+
         val alertRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         alertRow.addView(action("＋  SET PRICE ALERT", "#07111F", "#F5B141") {
             chart.drawingTool = DrawingTool.NONE; chart.alertPlacementMode = true
@@ -88,19 +119,33 @@ class ChartActivity : AppCompatActivity() {
         })
         root.addView(alertRow); root.addView(space(14))
         chart = MarketChartView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(-1, dp(370))
+            layoutParams = LinearLayout.LayoutParams(-1, dp(430))
             onAlertPlaced = { value -> confirmAlert(value) }
         }
-        chart.setData(emptyList(), isLight); root.addView(chart); root.addView(space(12))
+        chart.setEmaSettings(emaEnabled, emaPeriod, emaShift)
+        chart.setData(emptyList(), isLight)
+        root.addView(chart); root.addView(space(10))
+
+        val chartActions = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        chartActions.addView(action("RESET VIEW", "#A8DFFF", "#123B5B") { chart.resetViewport() })
+        chartActions.addView(spaceWidth(7))
+        chartActions.addView(action("CLEAR DRAWINGS", "#D8C6FF", "#2B2150") { chart.clearDrawings() })
+        root.addView(chartActions)
+        root.addView(space(10))
         root.addView(section("DRAWING TOOLS"))
         val tools = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        tools.addView(action("TRENDLINE", "#D8C6FF", "#2B2150") { chart.drawingTool = DrawingTool.TRENDLINE; toast("Draw a trendline on the chart") })
+        tools.addView(action("HORIZONTAL", "#D8C6FF", "#2B2150") { chart.drawingTool = DrawingTool.HORIZONTAL; toast("Tap and drag to place a horizontal line") })
+        tools.addView(spaceWidth(6))
+        tools.addView(action("TRENDLINE", "#D8C6FF", "#2B2150") { chart.drawingTool = DrawingTool.TRENDLINE; toast("Drag to draw a trendline") })
         tools.addView(spaceWidth(6))
         tools.addView(action("RAY", "#D8C6FF", "#2B2150") { chart.drawingTool = DrawingTool.RAY; toast("Draw a ray on the chart") })
         tools.addView(spaceWidth(6))
         tools.addView(action("RECTANGLE", "#D8C6FF", "#2B2150") { chart.drawingTool = DrawingTool.RECTANGLE; toast("Drag to draw a rectangle") })
-        root.addView(tools); root.addView(space(12))
-        root.addView(label("Historical chart data is provided by Deriv. 1W and 1M candles are aggregated from daily candles.", 10f, secondary(), false))
+        tools.addView(spaceWidth(6))
+        tools.addView(action("CLEAR", "#FCA5A5", "#402331") { chart.clearDrawings() })
+        val toolScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false; addView(tools) }
+        root.addView(toolScroll); root.addView(space(12))
+        root.addView(label("Drag to pan. Pinch to zoom. Drag the price axis area to adjust scale. Drawings stay anchored to market price and time.", 10f, secondary(), false))
         scroll.addView(root); setContentView(scroll)
         renderTimeframes(); renderChartType()
         chart.alertPrice = PrefsManager.getAlerts(this).firstOrNull { it.symbol == symbol }?.targetPrice
@@ -143,7 +188,6 @@ class ChartActivity : AppCompatActivity() {
                         val message = json.getJSONObject("error").optString("message", "Deriv API error")
                         runOnUiThread { setStatus("●  " + message.take(60), "#FCA5A5") }; return
                     }
-                    if (json.has("candles")) handleHistory(json)
                     when (json.optString("msg_type")) {
                         "candles", "history" -> handleHistory(json)
                         "tick" -> handleTick(json)
@@ -185,7 +229,7 @@ class ChartActivity : AppCompatActivity() {
         }
         val ready = if (timeframe == "1W" || timeframe == "1M") aggregate(raw, timeframe) else raw
         runOnUiThread {
-            bars = ready.toMutableList(); chart.setData(bars, isLight)
+            bars = ready.takeLast(500).toMutableList(); chart.setData(bars, isLight)
             setStatus("●  LIVE  ·  " + bars.size + " CANDLES", "#34D399")
             bars.lastOrNull()?.let { price.text = formatPrice(it.close) }
         }
@@ -220,6 +264,7 @@ class ChartActivity : AppCompatActivity() {
             val last = bars.lastOrNull()
             if (last == null || last.epoch != bucket) bars.add(CandleBar(bucket, quote, quote, quote, quote))
             else bars[bars.lastIndex] = last.copy(high = maxOf(last.high, quote), low = minOf(last.low, quote), close = quote)
+            if (bars.size > 500) bars.removeAt(0)
             chart.setData(bars, isLight)
         }
     }
@@ -236,6 +281,52 @@ class ChartActivity : AppCompatActivity() {
         }
         val span = apiGranularity().toLong()
         return epoch / span * span
+    }
+
+    private fun updateEmaButton() {
+        if (::emaSettingsButton.isInitialized) {
+            emaSettingsButton.text = "EMA $emaPeriod  ·  SHIFT $emaShift"
+            emaSettingsButton.alpha = if (emaEnabled) 1f else 0.55f
+        }
+    }
+
+    private fun showEmaSettingsDialog() {
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20), dp(8), dp(20), dp(2))
+        }
+        val periodInput = EditText(this).apply {
+            hint = "Period (1–200)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER
+            setText(emaPeriod.toString())
+            setSingleLine(true)
+        }
+        val shiftInput = EditText(this).apply {
+            hint = "Shift (-100 to 100)"
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_FLAG_SIGNED
+            setText(emaShift.toString())
+            setSingleLine(true)
+        }
+        box.addView(label("PERIOD · CLOSE PRICE SOURCE", 10f, accent(), true))
+        box.addView(periodInput)
+        box.addView(space(8))
+        box.addView(label("PLOT SHIFT · 0 = NO SHIFT", 10f, accent(), true))
+        box.addView(shiftInput)
+        AlertDialog.Builder(this)
+            .setTitle("EMA Indicator Settings")
+            .setView(box)
+            .setPositiveButton("APPLY") { _, _ ->
+                val nextPeriod = (periodInput.text.toString().toIntOrNull() ?: 9).coerceIn(1, 200)
+                val nextShift = (shiftInput.text.toString().toIntOrNull() ?: 0).coerceIn(-100, 100)
+                emaPeriod = nextPeriod
+                emaShift = nextShift
+                PrefsManager.setEmaPeriod(this, emaPeriod)
+                PrefsManager.setEmaShift(this, emaShift)
+                chart.setEmaSettings(emaEnabled, emaPeriod, emaShift)
+                updateEmaButton()
+            }
+            .setNegativeButton("CANCEL", null)
+            .show()
     }
 
     private fun confirmAlert(value: Double) {
