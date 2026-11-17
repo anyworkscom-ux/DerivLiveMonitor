@@ -77,6 +77,16 @@ class ChartActivity : AppCompatActivity() {
         val frameScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
         timeframeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, dp(10)) }
         frameScroll.addView(timeframeRow); root.addView(frameScroll)
+        val alertRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        alertRow.addView(action("＋  SET PRICE ALERT", "#07111F", "#F5B141") {
+            chart.drawingTool = DrawingTool.NONE; chart.alertPlacementMode = true
+            toast("Drag the horizontal line to your target price, then release")
+        }, LinearLayout.LayoutParams(0, -2, 1f))
+        alertRow.addView(spaceWidth(8))
+        alertRow.addView(action("REMOVE ALERT", "#FCA5A5", "#402331") {
+            PrefsManager.removeAlert(this, symbol); chart.alertPrice = null; toast("Price alert removed")
+        })
+        root.addView(alertRow); root.addView(space(14))
         chart = MarketChartView(this).apply {
             layoutParams = LinearLayout.LayoutParams(-1, dp(370))
             onAlertPlaced = { value -> confirmAlert(value) }
@@ -90,16 +100,6 @@ class ChartActivity : AppCompatActivity() {
         tools.addView(spaceWidth(6))
         tools.addView(action("RECTANGLE", "#D8C6FF", "#2B2150") { chart.drawingTool = DrawingTool.RECTANGLE; toast("Drag to draw a rectangle") })
         root.addView(tools); root.addView(space(12))
-        val alertRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-        alertRow.addView(action("＋  SET PRICE ALERT", "#07111F", "#F5B141") {
-            chart.drawingTool = DrawingTool.NONE; chart.alertPlacementMode = true
-            toast("Drag the horizontal line to your target price, then release")
-        }, LinearLayout.LayoutParams(0, -2, 1f))
-        alertRow.addView(spaceWidth(8))
-        alertRow.addView(action("REMOVE ALERT", "#FCA5A5", "#402331") {
-            PrefsManager.removeAlert(this, symbol); chart.alertPrice = null; toast("Price alert removed")
-        })
-        root.addView(alertRow); root.addView(space(14))
         root.addView(label("Historical chart data is provided by Deriv. 1W and 1M candles are aggregated from daily candles.", 10f, secondary(), false))
         scroll.addView(root); setContentView(scroll)
         renderTimeframes(); renderChartType()
