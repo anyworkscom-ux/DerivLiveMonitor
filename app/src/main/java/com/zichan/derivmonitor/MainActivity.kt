@@ -50,7 +50,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (PrefsManager.isActivated(this) && Settings.canDrawOverlays(this)) startOverlay()
+        if (PrefsManager.isActivated(this)) {
+            val savedLight = PrefsManager.getTheme(this) == "light"
+            if (savedLight != isLight && ::selectedLayout.isInitialized) {
+                isLight = savedLight
+                showDashboard()
+                return
+            }
+            if (Settings.canDrawOverlays(this)) startOverlay()
+        }
     }
 
     private fun showActivationGate() {
