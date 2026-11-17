@@ -29,8 +29,8 @@ private enum class GestureMode { NONE, PAN, PINCH, PRICE_SCALE, DRAW, EDIT_MARK,
 
 class MarketChartView(context: Context) : View(context) {
     private val grid = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(42, 135, 157, 184); strokeWidth = dp(1f) }
-    private val up = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(38, 211, 164); strokeWidth = dp(1.55f); strokeCap = Paint.Cap.ROUND }
-    private val down = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(244, 94, 119); strokeWidth = dp(1.55f); strokeCap = Paint.Cap.ROUND }
+    private val up = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(38, 166, 154); strokeWidth = dp(1.65f); strokeCap = Paint.Cap.ROUND }
+    private val down = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(239, 83, 80); strokeWidth = dp(1.65f); strokeCap = Paint.Cap.ROUND }
     private val axis = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(145, 160, 182); textSize = dp(10f) }
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(79, 176, 255); strokeWidth = dp(2.1f); style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
     private val emaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -91,6 +91,12 @@ class MarketChartView(context: Context) : View(context) {
     private var pinchDistance = 0f
     private var moved = false
     private var previewPrice: Double? = null
+    private var originalAlertPrice: Double? = null
+    private var pinchStartDistance = 0f
+    private var pinchStartVisibleCount = 90f
+    private var pinchStartPriceZoom = 1f
+    private var pinchAnchorIndex = 0f
+    private var pinchAnchorPrice = 0.0
 
     init {
         isClickable = true
@@ -321,25 +327,36 @@ class MarketChartView(context: Context) : View(context) {
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (bars.isEmpty()) return false
+
         val x = event.x.coerceIn(plot.left, plot.right)
         val y = event.y.coerceIn(plot.top, plot.bottom)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                val onPriceAxis = event.x > plot.right && event.x < width && event.y in plot.top..plot.bottom
+                val onPriceAxis = event.x > plot.right && event.x < width &&
+                    event.y >= plot.top && event.y <= plot.bottom
                 if (!plot.contains(event.x, event.y) && !onPriceAxis) return false
+
                 parent?.requestDisallowInterceptTouchEvent(true)
-                downX = x; downY = y; lastX = x; lastY = y; moved = false
+                downX = x
+                downY = y
+                lastX = x
+                lastY = y
+                moved = false
                 startPriceOffset = priceOffset
+                originalAlertPrice = alertPrice
                 selectedMarkIndex = -1
+
                 if (onPriceAxis) {
                     gestureMode = GestureMode.PRICE_SCALE
                     return true
                 }
+
                 when {
-                    alertPlacementMode || (alertPrice != null && abs(y - yFor(alertPrice!!)) <= dp(18f)) -> {
+                    alertPlacementMode || (alertPrice != null && abs(y - yFor(alertPrice!!)) <= dp(20f)) -> {
                         gestureMode = GestureMode.PLACE_ALERT
-                        previewPrice = valueForY(y); alertPrice = previewPrice
+                        previewPrice = valueForY(y)
+                        alertPrice = previewPrice
                     }
                     drawingTool != DrawingTool.NONE -> {
                         gestureMode = GestureMode.DRAW
@@ -362,78 +379,104 @@ class MarketChartView(context: Context) : View(context) {
                 invalidate()
                 return true
             }
+
             MotionEvent.ACTION_POINTER_DOWN -> {
-                if (!alertPlacementMode && event.pointerCount >= 2) {
+                if (event.pointerCount >= 2 && !alertPlacementMode &&
+                    gestureMode != GestureMode.DRAW && gestureMode != GestureMode.PLACE_ALERT) {
                     gestureMode = GestureMode.PINCH
-                    pinchDistance = pointerDistance(event)
+                    pinchStartDistance = pointerDistance(event).coerceAtLeast(1f)
+                    pinchStartVisibleCount = visibleCount
+                    pinchStartPriceZoom = priceZoom
+                    val centerX = (event.getX(0) + event.getX(1)) / 2f
+                    val centerY = (event.getY(0) + event.getY(1)) / 2f
+                    pinchAnchorIndex = indexForX(centerX.coerceIn(plot.left, plot.right))
+                    pinchAnchorPrice = valueForY(centerY.coerceIn(plot.top, plot.bottom))
                     parent?.requestDisallowInterceptTouchEvent(true)
                 }
                 return true
             }
+
             MotionEvent.ACTION_MOVE -> {
                 moved = true
                 if (gestureMode == GestureMode.PINCH && event.pointerCount >= 2) {
-                    val distance = pointerDistance(event)
-                    if (pinchDistance > 0f && distance > 0f) {
-                        val factor = distance / pinchDistance
-                        val centerX = (event.getX(0) + event.getX(1)) / 2f
-                        val centerIndex = indexForX(centerX.coerceIn(plot.left, plot.right))
-                        val nextCount = (visibleCount / factor).coerceIn(12f, bars.size.toFloat().coerceAtLeast(12f))
-                        val anchorRatio = ((centerX - plot.left) / plot.width()).coerceIn(0f, 1f)
-                        visibleCount = nextCount
-                        startIndex = (centerIndex - visibleCount * anchorRatio).coerceIn(0f, max(0f, bars.size - visibleCount))
-                        priceZoom = (priceZoom * factor).coerceIn(0.25f, 8f)
+                    val distance = pointerDistance(event).coerceAtLeast(1f)
+                    val factor = (distance / pinchStartDistance).coerceIn(0.25f, 4f)
+                    val centerX = (event.getX(0) + event.getX(1)) / 2f
+                    val centerY = (event.getY(0) + event.getY(1)) / 2f
+                    val anchorRatio = ((centerX - plot.left) / plot.width().coerceAtLeast(1f)).coerceIn(0f, 1f)
+
+                    visibleCount = (pinchStartVisibleCount / factor)
+                        .coerceIn(12f, bars.size.toFloat().coerceAtLeast(12f))
+                    startIndex = (pinchAnchorIndex - visibleCount * anchorRatio)
+                        .coerceIn(0f, max(0f, bars.size - visibleCount))
+
+                    val anchorY = centerY.coerceIn(plot.top, plot.bottom)
+                    priceZoom = (pinchStartPriceZoom * factor).coerceIn(0.25f, 8f)
+                    calculatePriceRange()
+                    priceOffset += pinchAnchorPrice - valueForY(anchorY)
+                } else {
+                    when (gestureMode) {
+                        GestureMode.PAN -> {
+                            val dx = x - lastX
+                            val dy = y - lastY
+                            startIndex = (startIndex - dx / plot.width().coerceAtLeast(1f) * visibleCount)
+                                .coerceIn(0f, max(0f, bars.size - visibleCount))
+                            val range = (maxPrice - minPrice).coerceAtLeast(0.0000001)
+                            priceOffset += dy.toDouble() * range / plot.height().coerceAtLeast(1f)
+                        }
+                        GestureMode.PRICE_SCALE -> {
+                            val anchorPrice = valueForY(downY)
+                            val factor = kotlin.math.exp((y - lastY) * 0.007f)
+                            priceZoom = (priceZoom * factor).coerceIn(0.25f, 8f)
+                            calculatePriceRange()
+                            priceOffset += anchorPrice - valueForY(downY)
+                        }
+                        GestureMode.PLACE_ALERT -> {
+                            previewPrice = valueForY(y)
+                            alertPrice = previewPrice
+                        }
+                        GestureMode.DRAW -> {
+                            val old = activeMark ?: return true
+                            activeMark = old.copy(index2 = indexForX(x), price2 = valueForY(y))
+                        }
+                        GestureMode.EDIT_MARK -> {
+                            val original = originalSelectedMark ?: return true
+                            val deltaIndex = indexForX(x) - indexForX(downX)
+                            val deltaPrice = valueForY(y) - valueForY(downY)
+                            val updated = if (original.tool == DrawingTool.HORIZONTAL) {
+                                original.copy(price1 = original.price1 + deltaPrice, price2 = original.price2 + deltaPrice)
+                            } else {
+                                original.copy(
+                                    index1 = original.index1 + deltaIndex,
+                                    index2 = original.index2 + deltaIndex,
+                                    price1 = original.price1 + deltaPrice,
+                                    price2 = original.price2 + deltaPrice
+                                )
+                            }
+                            if (selectedMarkIndex in marks.indices) marks[selectedMarkIndex] = updated
+                        }
+                        else -> Unit
                     }
-                    pinchDistance = distance
-                } else when (gestureMode) {
-                    GestureMode.PAN -> {
-                        val dx = x - lastX
-                        val dy = y - lastY
-                        startIndex = (startIndex - dx / plot.width() * visibleCount)
-                            .coerceIn(0f, max(0f, bars.size - visibleCount))
-                        val range = maxPrice - minPrice
-                        priceOffset += dy.toDouble() * range / plot.height().coerceAtLeast(1f)
-                    }
-                    GestureMode.PRICE_SCALE -> {
-                        val dy = y - lastY
-                        priceZoom = (priceZoom * kotlin.math.exp(dy * 0.006f)).coerceIn(0.25f, 8f)
-                    }
-                    GestureMode.PLACE_ALERT -> {
-                        previewPrice = valueForY(y); alertPrice = previewPrice
-                    }
-                    GestureMode.DRAW -> {
-                        val old = activeMark ?: return true
-                        activeMark = old.copy(index2 = indexForX(x), price2 = valueForY(y))
-                    }
-                    GestureMode.EDIT_MARK -> {
-                        val original = originalSelectedMark ?: return true
-                        val deltaIndex = indexForX(x) - indexForX(downX)
-                        val deltaPrice = valueForY(y) - valueForY(downY)
-                        val updated = if (original.tool == DrawingTool.HORIZONTAL) {
-                            original.copy(price1 = original.price1 + deltaPrice, price2 = original.price2 + deltaPrice)
-                        } else original.copy(
-                            index1 = original.index1 + deltaIndex, index2 = original.index2 + deltaIndex,
-                            price1 = original.price1 + deltaPrice, price2 = original.price2 + deltaPrice
-                        )
-                        if (selectedMarkIndex in marks.indices) marks[selectedMarkIndex] = updated
-                    }
-                    else -> Unit
                 }
-                lastX = x; lastY = y
+                lastX = x
+                lastY = y
                 invalidate()
                 return true
             }
+
             MotionEvent.ACTION_POINTER_UP -> {
                 if (gestureMode == GestureMode.PINCH) {
-                    gestureMode = GestureMode.PAN
                     val remaining = if (event.actionIndex == 0) 1 else 0
                     if (remaining < event.pointerCount) {
                         lastX = event.getX(remaining).coerceIn(plot.left, plot.right)
                         lastY = event.getY(remaining).coerceIn(plot.top, plot.bottom)
                     }
+                    gestureMode = GestureMode.PAN
+                    autoFollow = false
                 }
                 return true
             }
+
             MotionEvent.ACTION_UP -> {
                 when (gestureMode) {
                     GestureMode.PLACE_ALERT -> {
@@ -445,7 +488,10 @@ class MarketChartView(context: Context) : View(context) {
                     }
                     GestureMode.DRAW -> {
                         activeMark?.let { mark ->
-                            if (mark.tool == DrawingTool.HORIZONTAL || abs(mark.index2 - mark.index1) > 0.15f || abs(mark.price2 - mark.price1) > 0.0) marks.add(mark)
+                            val shouldKeep = mark.tool == DrawingTool.HORIZONTAL ||
+                                abs(mark.index2 - mark.index1) > 0.15f ||
+                                abs(mark.price2 - mark.price1) > 0.0
+                            if (shouldKeep) marks.add(mark)
                         }
                         activeMark = null
                         drawingTool = DrawingTool.NONE
@@ -454,16 +500,24 @@ class MarketChartView(context: Context) : View(context) {
                 }
                 gestureMode = GestureMode.NONE
                 originalSelectedMark = null
+                originalAlertPrice = null
                 parent?.requestDisallowInterceptTouchEvent(false)
                 invalidate()
                 performClick()
                 return true
             }
+
             MotionEvent.ACTION_CANCEL -> {
                 activeMark = null
+                if (gestureMode == GestureMode.EDIT_MARK &&
+                    selectedMarkIndex in marks.indices && originalSelectedMark != null) {
+                    marks[selectedMarkIndex] = originalSelectedMark!!
+                }
+                if (gestureMode == GestureMode.PLACE_ALERT) alertPrice = originalAlertPrice
                 gestureMode = GestureMode.NONE
                 originalSelectedMark = null
                 previewPrice = null
+                originalAlertPrice = null
                 parent?.requestDisallowInterceptTouchEvent(false)
                 invalidate()
                 return true
