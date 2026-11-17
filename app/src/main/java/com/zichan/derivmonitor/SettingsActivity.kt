@@ -56,6 +56,10 @@ class SettingsActivity : AppCompatActivity() {
         root.addView(partnerCard("DERIV", "Create or access your Deriv account", derivLink))
         root.addView(space(12))
         root.addView(partnerCard("EXNESS", "Explore Exness through my partner link", exnessLink))
+        root.addView(space(9))
+        root.addView(label("FREE ACCESS FOR PARTNER REFERRALS", 10f, accent(), true))
+        root.addView(label("Users who open a Deriv or Exness account through my partner links can contact me to request free app activation. Partner registration and activation eligibility may be verified.", 11f, secondary(), false).apply { setPadding(0, dp(6), 0, dp(18)) })
+        root.addView(space(2))
         root.addView(space(20))
 
         root.addView(section("DEVELOPER"))
