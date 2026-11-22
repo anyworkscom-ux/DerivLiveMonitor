@@ -9,14 +9,14 @@ function setStatus(state,message){$("statusDot").className="dot "+state;$("statu
 function connect(){
   clearTimeout(reconnectTimer); setStatus("amber","CONNECTING");
   try{socket=new WebSocket(ENDPOINT)}catch(e){scheduleReconnect();return}
-  socket.onopen=()=>{retry=0;setStatus("amber","SYNCING MARKETS");socket.send(JSON.stringify({active_symbols:"brief"}))};
+  socket.onopen=()=>{retry=0;subscriptions.clear();setStatus("amber","SYNCING MARKETS");socket.send(JSON.stringify({active_symbols:"brief"}))};
   socket.onmessage=(event)=>{let data;try{data=JSON.parse(event.data)}catch{return}
     if(data.error){setStatus("red","API ERROR");return}
     if(data.msg_type==="active_symbols"){catalogue=data.active_symbols||[];subscribeSelected();renderSearch()}
     if(data.msg_type==="tick"){const t=data.tick;if(!t)return;const old=lastPrices.get(t.symbol);lastPrices.set(t.symbol,{quote:Number(t.quote),epoch:t.epoch,previous:old?.quote});renderPrices();if(t.subscription?.id)subscriptions.set(t.symbol,t.subscription.id)}
   };
   socket.onerror=()=>setStatus("red","CONNECTION ISSUE");
-  socket.onclose=()=>{setStatus("amber","RECONNECTING");scheduleReconnect()};
+  socket.onclose=()=>{subscriptions.clear();setStatus("amber","RECONNECTING");scheduleReconnect()};
 }
 function scheduleReconnect(){clearTimeout(reconnectTimer);const wait=Math.min(30000,1500*Math.pow(2,Math.min(retry++,4)));reconnectTimer=setTimeout(connect,wait)}
 function resolveSymbol(code){
