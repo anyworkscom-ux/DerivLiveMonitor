@@ -14,11 +14,20 @@
   "build": {
     "appId": "com.zichan.marketmonitor.desktop",
     "productName": "Zichan Market Monitor",
-    "directories": { "output": "dist" },
-    "files": ["main.js", "preload.js", "index.html", "renderer.js", "styles.css"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "renderer.js",
+      "styles.css"
+    ],
     "win": {
-      "target": ["nsis"],
-      "icon": "assets/icon.ico",
+      "target": [
+        "nsis"
+      ],
       "artifactName": "Zichan-Market-Monitor-Setup-${version}.${ext}"
     },
     "nsis": {
