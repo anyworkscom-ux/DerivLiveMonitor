@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src https://api.derivws.com wss://api.derivws.com;">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zichan Market Monitor</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="logo">Z</div>
+        <div><div class="brand-name">ZICHAN</div><div class="brand-sub">LIVE MARKET</div></div>
+      </div>
+      <div class="window-actions">
+        <button id="settingsBtn" class="icon-btn" title="Settings">⚙</button>
+        <button id="minBtn" class="icon-btn" title="Minimize">—</button>
+        <button id="closeBtn" class="icon-btn close" title="Close">×</button>
+      </div>
+    </header>
+    <section class="status-line">
+      <span id="statusDot" class="dot amber"></span><span id="statusText">CONNECTING</span>
+      <span class="status-spacer"></span><span id="clock">--:--:--</span>
+    </section>
+    <section id="priceList" class="price-list" aria-live="polite"></section>
+    <section id="settings" class="settings hidden">
+      <div class="settings-head"><strong>MONITOR SETTINGS</strong><button id="settingsClose" class="text-btn">DONE</button></div>
+      <label class="setting-label">Search Deriv markets</label>
+      <input id="marketSearch" type="search" placeholder="Search symbol or market name…">
+      <div id="marketResults" class="market-results"></div>
+      <div class="setting-row"><label for="opacity">Panel opacity</label><span id="opacityValue">94%</span></div>
+      <input id="opacity" type="range" min="45" max="100" value="94">
+      <div class="setting-row"><label for="scale">Price text size</label><span id="scaleValue">100%</span></div>
+      <input id="scale" type="range" min="80" max="145" value="100">
+      <label class="check-row"><input id="alwaysTop" type="checkbox" checked> Keep above other windows</label>
+      <button id="resetBtn" class="reset-btn">Restore default markets</button>
+    </section>
+    <footer><span>DERIV PUBLIC MARKET DATA</span><span id="marketCount">2 MARKETS</span></footer>
+  </main>
+  <script src="renderer.js"></script>
+</body>
+</html>
